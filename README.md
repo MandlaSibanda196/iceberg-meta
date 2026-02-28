@@ -65,43 +65,72 @@ Every data command supports `--output json` and `--output csv`.
 
 ## Use Cases
 
-**CI/CD validation** -- confirm a pipeline write actually landed before merging:
+### Pre-merge validation in CI/CD
+
+Confirm a pipeline write actually landed before merging:
 
 ```bash
-iceberg-meta summary staging.orders && iceberg-meta diff staging.orders $OLD $NEW
+iceberg-meta summary staging.orders          # row count, file count, latest snapshot
+iceberg-meta diff staging.orders $OLD $NEW   # what changed between two snapshots
+iceberg-meta files staging.orders -o csv     # pipe file-level stats into a check script
 ```
 
-**Debugging** -- Spark job "succeeded" but dashboards are empty:
+### Debugging failing writes
+
+Spark job "succeeded" but downstream dashboards are empty:
 
 ```bash
-iceberg-meta snapshots staging.orders     # did the snapshot land?
-iceberg-meta schema staging.orders --history  # schema break?
-iceberg-meta files staging.orders         # files present and non-empty?
+iceberg-meta snapshots staging.orders        # did the snapshot actually land?
+iceberg-meta schema staging.orders --history # did a schema evolution break compatibility?
+iceberg-meta files staging.orders            # are the new data files present and non-empty?
 ```
 
-**Table health** -- catch small-file problems and partition skew early:
+### Monitoring table health
+
+Spot small-file problems, partition skew, and compaction needs before they impact query performance:
 
 ```bash
 iceberg-meta health warehouse.events
 ```
 
-**Live monitoring** -- watch for new snapshots as a pipeline runs:
+The health report covers file sizes (min/avg/median/max with small-file warnings), delete file accumulation, partition skew detection, column null rates, column storage distribution, and column value bounds.
+
+### Live monitoring
+
+Watch for new snapshots as a pipeline runs:
 
 ```bash
 iceberg-meta snapshots warehouse.events --watch 5
 ```
 
-**Incident response** -- find when bad data was introduced:
+### Onboarding and knowledge transfer
+
+New team member needs to understand the data platform:
 
 ```bash
-iceberg-meta diff prod.customers 111 222
+iceberg-meta tui
 ```
 
-**Scripting** -- pipe into alerts or dashboards:
+### Incident response
+
+Production data looks wrong — find when the issue was introduced:
 
 ```bash
-iceberg-meta -o json summary db.events | jq '.file_count'
+iceberg-meta snapshots prod.customers        # find the suspicious snapshot IDs
+iceberg-meta diff prod.customers 111 222     # compare record counts and file changes
+iceberg-meta tree prod.customers             # drill into manifests and data files
+```
+
+### Scripting and automation
+
+Pipe machine-readable output into alerts or dashboards:
+
+```bash
+FILE_COUNT=$(iceberg-meta -o json summary db.events | jq '.file_count')
+[ "$FILE_COUNT" -gt 1000 ] && echo "Small file problem detected"
+
 iceberg-meta -o csv snapshots db.events > snapshots.csv
+iceberg-meta -o json health db.events | jq '.[] | select(.Section == "Column Nulls")'
 ```
 
 ## See it in action
