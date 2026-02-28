@@ -45,9 +45,9 @@ dev = [
 iceberg-meta = "iceberg_meta.cli:app"
 
 [project.urls]
-Homepage = "https://github.com/sibanda/iceberg-meta"
-Documentation = "https://github.com/sibanda/iceberg-meta#readme"
-Issues = "https://github.com/sibanda/iceberg-meta/issues"
+Homepage = "https://github.com/MandlaSibanda196/iceberg-meta"
+Documentation = "https://github.com/MandlaSibanda196/iceberg-meta#readme"
+Issues = "https://github.com/MandlaSibanda196/iceberg-meta/issues"
 
 [build-system]
 requires = ["setuptools>=68.0"]
