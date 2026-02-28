@@ -265,7 +265,7 @@ Data engineers who already have AWS credentials or catalog URIs in their environ
 ```
 iceberg-meta/
 │
-├── src/iceberg_meta/      PyPI package source (what gets published)
+├── src/iceberg_meta/      Package source
 │   ├── catalog.py         Config resolution + ${VAR} expansion
 │   ├── cli.py             Typer commands
 │   ├── formatters.py      Rich table / tree renderers + health analysis
@@ -273,17 +273,9 @@ iceberg-meta/
 │   ├── utils.py           Byte / timestamp formatting helpers
 │   └── tui/               Interactive terminal UI (optional)
 │
-├── dev/                   Development & testing
-│   ├── .env.example       Environment template (credentials, endpoints)
-│   ├── docker-compose.yml MinIO + seed containers
-│   ├── docker/            MinIO & seed Dockerfiles
-│   ├── tests/             pytest suite (integration + unit)
-│   ├── scripts/           Host-side seed script
-│   └── DEMO.md            Step-by-step dev walkthrough
-│
-├── quickstart/            End-user sandbox ("pip install and go")
+├── quickstart/            Try it locally with Docker
 │   ├── .env.example       Credentials template
-│   ├── docker-compose.yml MinIO only (lightweight)
+│   ├── docker-compose.yml MinIO (lightweight)
 │   ├── iceberg-meta.yaml  Config with ${VAR} placeholders
 │   ├── seed.py            Sample data creator
 │   └── README.md          Getting-started guide
@@ -292,7 +284,6 @@ iceberg-meta/
 │   └── iceberg-meta.yaml  Glue, REST, Nessie, Hive, Hadoop templates
 │
 ├── pyproject.toml         Package definition
-├── Makefile               Dev commands (make test, make lint, ...)
 └── LICENSE                MIT license
 ```
 
@@ -301,26 +292,9 @@ iceberg-meta/
 Requires [uv](https://docs.astral.sh/uv/) for dependency management.
 
 ```bash
-# First-time setup
-make install
-make setup          # copies dev/.env.example → .env
-
-# Start infrastructure and seed data
-make infra-up
-make seed
-
-# Development workflow
-make lint         # ruff check
-make format       # ruff format
-make typecheck    # mypy
-make test         # pytest
-make test-cov     # pytest with coverage
-make all          # lint + format + typecheck + test
-
-# Build & publish
-make build        # build sdist + wheel
-make clean        # remove build artifacts
-make infra-down   # stop & remove containers
+uv sync --all-extras        # install all dependencies
+uv run ruff check src/      # lint
+uv run ruff format src/     # format
+uv run mypy src/            # type check
+uv build                    # build sdist + wheel
 ```
-
-See [dev/README.md](dev/README.md) for the full contributor guide and [dev/DEMO.md](dev/DEMO.md) for a step-by-step walkthrough.
