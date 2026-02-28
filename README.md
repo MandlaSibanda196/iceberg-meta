@@ -2,6 +2,66 @@
 
 CLI and TUI for exploring Apache Iceberg table metadata. Lightweight, terminal-native, and scriptable -- inspect snapshots, schemas, manifests, data files, partition health, and column-level statistics without spinning up a Spark shell or writing a notebook.
 
+## See it in action
+
+```
+$ iceberg-meta summary sales.orders
+
+┌─────────────────────────────────────────────────────────────────┐
+│                     sales.orders  Summary                       │
+├──────────────────────┬──────────────────────────────────────────┤
+│ Format version       │ 2                                        │
+│ Current snapshot     │ 3850172894835408499                       │
+│ Total snapshots      │ 4                                        │
+│ Total data files     │ 1                                        │
+│ Total records        │ 15                                       │
+│ Total size           │ 5.2 KB                                   │
+│ Partition spec       │ region (identity)                        │
+├──────────────────────┴──────────────────────────────────────────┤
+│ Recent Operations                                               │
+│  overwrite   2025-02-28 19:04    +15 rows   -60 rows            │
+│  append      2025-02-28 19:04    +15 rows   -0 rows             │
+│  append      2025-02-28 19:04    +20 rows   -0 rows             │
+│  append      2025-02-28 19:04    +15 rows   -0 rows             │
+└─────────────────────────────────────────────────────────────────┘
+```
+
+```
+$ iceberg-meta schema sales.customers --history
+
+Schema 0  (initial)
+├── customer_id: long
+├── name: string
+└── email: string
+
+Schema 1  (+2 fields)
+├── customer_id: long
+├── name: string
+├── email: string
+├── phone: string          ← added
+└── signup_date: date      ← added
+
+Schema 2  (1 rename)
+├── customer_id: long
+├── name: string
+├── email_address: string  ← renamed from email
+├── phone: string
+└── signup_date: date
+```
+
+```
+$ iceberg-meta tree analytics.events
+
+Table: analytics.events
+└── Snapshot 7291038465... (append, 2025-02-28 19:04)
+    └── Manifest List (3 manifests)
+        ├── Manifest: .../snap-7291038465...-0.avro (25 files, 4.2 KB)
+        │   ├── events/data/00000-0-....parquet (25 rows, 1.4 KB)
+        │   └── ... and 24 more files
+        ├── Manifest: .../snap-5830172938...-0.avro (25 files, 4.1 KB)
+        └── Manifest: .../snap-1928374650...-0.avro (25 files, 4.0 KB)
+```
+
 ## Why iceberg-meta?
 
 Iceberg tables store rich metadata -- schema evolution history, snapshot lineage, manifest-level statistics, column bounds, and more. But accessing any of it usually means writing PySpark code or digging through Avro files by hand.
@@ -22,11 +82,22 @@ pip install iceberg-meta
 pip install iceberg-meta[tui]
 ```
 
+## Try it now
+
+No config, no Docker, no credentials -- see what iceberg-meta can do in 10 seconds:
+
+```bash
+iceberg-meta demo
+```
+
+This creates a temporary local catalog with sample tables and launches the TUI. Everything is cleaned up when you exit.
+
 ## Quick Start
+
+### Option 1: Connect to your data
 
 ```bash
 # 1. Configure — picks your catalog type, writes ~/.iceberg-meta.yaml
-#    with ${VAR} placeholders (secrets stay in the environment)
 iceberg-meta init
 
 # 2. Verify — checks config, env vars, and catalog connectivity
@@ -35,22 +106,29 @@ iceberg-meta doctor
 # 3. Explore
 iceberg-meta list-tables
 iceberg-meta summary sales.orders
-iceberg-meta health sales.orders
-iceberg-meta tree sales.orders
-```
-
-Or launch the interactive TUI to browse everything visually:
-
-```bash
 iceberg-meta tui
 ```
 
-See the [quickstart/](quickstart/) folder for a guided walkthrough with Docker.
+### Option 2: Docker playground
+
+Spin up a local MinIO + sample data environment with one command:
+
+```bash
+iceberg-meta quickstart
+```
+
+This starts a MinIO container, seeds sample tables, and configures everything. When you're done:
+
+```bash
+iceberg-meta quickstart --down
+```
 
 ## Commands
 
 | Command | Description |
 |---|---|
+| `demo` | Try instantly -- creates temp local catalog with sample data, no config needed |
+| `quickstart` | Docker playground -- starts MinIO, seeds data, configures everything |
 | `init` | Interactive config setup -- catalog presets, `${VAR}` placeholders, connection test |
 | `doctor` | Validate config file, environment variables, and catalog connectivity |
 | `list-tables` | Discover namespaces and tables |

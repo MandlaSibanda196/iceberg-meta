@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import shutil
 import time
 from pathlib import Path
 
@@ -182,7 +183,7 @@ def main(
     ctx.ensure_object(dict)
 
     invoked = ctx.invoked_subcommand
-    if invoked in ("init", "doctor"):
+    if invoked in ("init", "doctor", "demo", "quickstart"):
         ctx.obj["output_format"] = output
         return
 
@@ -514,6 +515,378 @@ def doctor(ctx: typer.Context) -> None:
         )
     else:
         console.print("[green bold]Everything looks good![/green bold]")
+
+
+# ─── demo ─────────────────────────────────────────────────────
+
+
+@app.command()
+def demo(ctx: typer.Context) -> None:
+    """Try iceberg-meta with sample data — no config or Docker needed.
+
+    Creates a temporary local catalog with sample tables and launches
+    the TUI (or prints a summary if the TUI isn't installed).
+    Cleaned up automatically on exit.
+    """
+    from iceberg_meta.demo import cleanup_demo, create_demo_catalog
+
+    console.print(
+        "[bold]iceberg-meta demo[/bold]\n\n  Creating a local catalog with sample tables...\n"
+    )
+
+    try:
+        demo_dir, props = create_demo_catalog()
+    except Exception as exc:
+        err_console.print(f"[red bold]Failed to create demo catalog:[/red bold] {exc}")
+        raise SystemExit(1) from None
+
+    config = CatalogConfig(catalog_name="demo", properties=props)
+    tables_by_ns = list_all_tables(config)
+    total = sum(len(ts) for ts in tables_by_ns.values())
+    console.print(
+        f"  [green]✓[/green] Created {total} tables across {len(tables_by_ns)} namespaces\n"
+    )
+    for _ns, tables in sorted(tables_by_ns.items()):
+        for t in tables:
+            tbl = get_table(config, t)
+            snaps = len(tbl.metadata.snapshots)
+            console.print(f"    {t:<30} {snaps} snapshot{'s' if snaps != 1 else ''}")
+    console.print()
+
+    try:
+        from iceberg_meta.tui.app import IcebergMetaApp
+
+        console.print("  Launching TUI — press [bold]q[/bold] to quit\n")
+        tui_app = IcebergMetaApp(catalog_config=config)
+        tui_app.run()
+    except ImportError:
+        console.print(
+            "  [dim]TUI not installed — showing summary instead[/dim]\n"
+            "  Install with: [bold]pip install iceberg-meta\\[tui][/bold]\n"
+        )
+        for _ns, tables in sorted(tables_by_ns.items()):
+            for t in tables:
+                tbl = get_table(config, t)
+                formatters.render_summary(console, tbl)
+                console.print()
+    except Exception as exc:
+        err_console.print(f"[red bold]TUI error:[/red bold] {exc}")
+    finally:
+        cleanup_demo(demo_dir)
+        console.print("[dim]Demo data cleaned up.[/dim]")
+
+
+# ─── quickstart ───────────────────────────────────────────────
+
+
+_DOCKER_COMPOSE = """\
+services:
+  minio:
+    image: minio/minio:latest
+    container_name: iceberg-meta-qs-minio
+    environment:
+      MINIO_ROOT_USER: admin
+      MINIO_ROOT_PASSWORD: password
+      MINIO_REGION_NAME: us-east-1
+    ports:
+      - "9000:9000"
+      - "9001:9001"
+    volumes:
+      - minio-data:/data
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:9000/minio/health/live"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+    command: server /data --console-address ":9001"
+
+  init-minio:
+    image: minio/mc:latest
+    container_name: iceberg-meta-qs-init
+    depends_on:
+      minio:
+        condition: service_healthy
+    entrypoint: >
+      sh -c "
+        mc alias set myminio http://minio:9000 admin password &&
+        mc mb --ignore-existing myminio/warehouse &&
+        echo 'Bucket ready.'
+      "
+
+volumes:
+  minio-data:
+"""
+
+
+@app.command()
+def quickstart(
+    ctx: typer.Context,
+    down: bool = typer.Option(False, "--down", help="Stop and remove quickstart containers"),
+) -> None:
+    """Set up a local playground with Docker (MinIO + sample data).
+
+    Downloads and starts a MinIO container, seeds sample Iceberg tables,
+    configures iceberg-meta to connect, and shows you how to explore.
+    Requires Docker to be installed and running.
+
+    Use --down to stop and clean up when you're done.
+    """
+    import subprocess
+
+    if down:
+        _quickstart_teardown()
+        return
+
+    console.print(
+        "[bold]iceberg-meta quickstart[/bold]\n\n"
+        "  This will:\n"
+        "    1. Start a MinIO container (S3-compatible storage)\n"
+        "    2. Create sample Iceberg tables with realistic data\n"
+        "    3. Configure iceberg-meta to connect\n"
+    )
+
+    # -- check Docker is installed --
+    docker_cmd = shutil.which("docker")
+    if not docker_cmd:
+        err_console.print(
+            "[red bold]Docker not found.[/red bold]\n\n"
+            "  The quickstart needs Docker to run a local MinIO instance.\n"
+            "  Install Docker: [bold]https://docs.docker.com/get-docker/[/bold]\n\n"
+            "  [dim]Don't want Docker? Try [bold]iceberg-meta demo[/bold] instead —\n"
+            "  it runs entirely in-memory, no containers needed.[/dim]"
+        )
+        raise SystemExit(1)
+
+    # -- check Docker daemon is running --
+    try:
+        result = subprocess.run(
+            ["docker", "info"],
+            capture_output=True,
+            text=True,
+            timeout=10,
+        )
+        if result.returncode != 0:
+            err_console.print(
+                "[red bold]Docker is installed but not running.[/red bold]\n\n"
+                "  Start Docker Desktop or the Docker daemon, then try again.\n\n"
+                "  [dim]Don't want Docker? Try [bold]iceberg-meta demo[/bold] instead.[/dim]"
+            )
+            raise SystemExit(1)
+    except subprocess.TimeoutExpired:
+        err_console.print(
+            "[red bold]Docker is not responding.[/red bold]\n\n"
+            "  The Docker daemon may be starting up — wait a moment and try again.\n\n"
+            "  [dim]Don't want Docker? Try [bold]iceberg-meta demo[/bold] instead.[/dim]"
+        )
+        raise SystemExit(1) from None
+
+    # -- check docker compose --
+    compose_available = False
+    try:
+        result = subprocess.run(
+            ["docker", "compose", "version"],
+            capture_output=True,
+            text=True,
+            timeout=5,
+        )
+        compose_available = result.returncode == 0
+    except (subprocess.TimeoutExpired, FileNotFoundError):
+        pass
+
+    if not compose_available:
+        err_console.print(
+            "[red bold]Docker Compose not available.[/red bold]\n\n"
+            "  The quickstart needs 'docker compose' (v2).\n"
+            "  It's included with Docker Desktop, or install it separately:\n"
+            "  [bold]https://docs.docker.com/compose/install/[/bold]\n\n"
+            "  [dim]Don't want Docker? Try [bold]iceberg-meta demo[/bold] instead.[/dim]"
+        )
+        raise SystemExit(1)
+
+    # -- check port 9000 --
+    import socket
+
+    sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+    try:
+        sock.settimeout(1)
+        port_in_use = sock.connect_ex(("localhost", 9000)) == 0
+    finally:
+        sock.close()
+
+    if port_in_use:
+        err_console.print(
+            "[yellow bold]Port 9000 is already in use.[/yellow bold]\n\n"
+            "  MinIO needs port 9000. You may already have a quickstart running.\n"
+            "  Stop it with: [bold]iceberg-meta quickstart --down[/bold]\n"
+            "  Or check what's using the port: [bold]lsof -i :9000[/bold]"
+        )
+        raise SystemExit(1)
+
+    # -- set up working directory --
+    qs_dir = Path.home() / ".iceberg-meta-quickstart"
+    qs_dir.mkdir(parents=True, exist_ok=True)
+    compose_file = qs_dir / "docker-compose.yml"
+    compose_file.write_text(_DOCKER_COMPOSE)
+
+    # -- start containers --
+    console.print("  [bold]Starting MinIO...[/bold]")
+    try:
+        result = subprocess.run(
+            ["docker", "compose", "up", "-d", "--wait"],
+            cwd=str(qs_dir),
+            capture_output=True,
+            text=True,
+            timeout=120,
+        )
+        if result.returncode != 0:
+            stderr = result.stderr.strip()
+            err_console.print(
+                f"[red bold]Failed to start containers:[/red bold]\n  {stderr}\n\n"
+                "  Try running manually:\n"
+                f"  [bold]cd {qs_dir} && docker compose up -d[/bold]"
+            )
+            raise SystemExit(1)
+    except subprocess.TimeoutExpired:
+        err_console.print(
+            "[red bold]Timed out waiting for containers.[/red bold]\n\n"
+            "  Docker may be pulling images (first run can be slow).\n"
+            f"  Check status: [bold]cd {qs_dir} && docker compose ps[/bold]"
+        )
+        raise SystemExit(1) from None
+
+    console.print("  [green]✓[/green] MinIO running on localhost:9000\n")
+
+    # -- seed data --
+    console.print("  [bold]Seeding sample tables...[/bold]")
+
+    import os
+
+    os.environ.setdefault("ICEBERG_CATALOG_URI", "sqlite:///catalog/iceberg_catalog.db")
+    os.environ.setdefault("ICEBERG_WAREHOUSE", "s3://warehouse")
+    os.environ.setdefault("S3_ENDPOINT", "http://localhost:9000")
+    os.environ.setdefault("AWS_ACCESS_KEY_ID", "admin")
+    os.environ.setdefault("AWS_SECRET_ACCESS_KEY", "password")
+    os.environ.setdefault("AWS_REGION", "us-east-1")
+
+    catalog_dir = Path("catalog")
+    catalog_dir.mkdir(exist_ok=True)
+
+    try:
+        from pyiceberg.catalog.sql import SqlCatalog as _SqlCatalog
+
+        from iceberg_meta.demo import _seed_customers, _seed_events, _seed_orders
+
+        cat = _SqlCatalog(
+            "quickstart",
+            **{
+                "uri": os.environ["ICEBERG_CATALOG_URI"],
+                "warehouse": os.environ["ICEBERG_WAREHOUSE"],
+                "s3.endpoint": os.environ["S3_ENDPOINT"],
+                "s3.access-key-id": os.environ["AWS_ACCESS_KEY_ID"],
+                "s3.secret-access-key": os.environ["AWS_SECRET_ACCESS_KEY"],
+                "s3.path-style-access": "true",
+                "s3.region": os.environ["AWS_REGION"],
+            },
+        )
+
+        for ns in ("sales", "analytics"):
+            cat.create_namespace_if_not_exists(ns)
+
+        _seed_orders(cat)
+        _seed_customers(cat)
+        _seed_events(cat)
+    except Exception as exc:
+        err_console.print(
+            f"[red bold]Failed to seed data:[/red bold] {exc}\n\n"
+            "  MinIO may still be initializing. Wait a few seconds and try:\n"
+            "  [bold]iceberg-meta quickstart[/bold]"
+        )
+        raise SystemExit(1) from None
+
+    console.print("  [green]✓[/green] Sample tables created\n")
+
+    # -- configure iceberg-meta --
+    import contextlib
+
+    with contextlib.suppress(Exception):
+        merge_config_file(
+            "quickstart",
+            {
+                "type": "sql",
+                "uri": "${ICEBERG_CATALOG_URI}",
+                "warehouse": "${ICEBERG_WAREHOUSE}",
+                "s3.endpoint": "${S3_ENDPOINT}",
+                "s3.access-key-id": "${AWS_ACCESS_KEY_ID}",
+                "s3.secret-access-key": "${AWS_SECRET_ACCESS_KEY}",
+                "s3.path-style-access": "true",
+                "s3.region": "${AWS_REGION}",
+            },
+            make_default=True,
+        )
+
+    # -- show results --
+    config = CatalogConfig(
+        catalog_name="quickstart",
+        properties={
+            "type": "sql",
+            "uri": os.environ["ICEBERG_CATALOG_URI"],
+            "warehouse": os.environ["ICEBERG_WAREHOUSE"],
+            "s3.endpoint": os.environ["S3_ENDPOINT"],
+            "s3.access-key-id": os.environ["AWS_ACCESS_KEY_ID"],
+            "s3.secret-access-key": os.environ["AWS_SECRET_ACCESS_KEY"],
+            "s3.path-style-access": "true",
+            "s3.region": os.environ["AWS_REGION"],
+        },
+    )
+    tables_by_ns = list_all_tables(config)
+    total = sum(len(ts) for ts in tables_by_ns.values())
+
+    console.print(
+        f"  [green bold]Ready![/green bold]  {total} tables across {len(tables_by_ns)} namespaces\n"
+    )
+
+    console.print(
+        "[bold]Try these:[/bold]\n\n"
+        "  iceberg-meta list-tables\n"
+        "  iceberg-meta summary sales.orders\n"
+        "  iceberg-meta health sales.orders\n"
+        "  iceberg-meta schema sales.customers --history\n"
+        "  iceberg-meta tree analytics.events\n"
+        "  iceberg-meta tui\n\n"
+        "[bold]When you're done:[/bold]\n\n"
+        "  iceberg-meta quickstart --down\n"
+    )
+
+
+def _quickstart_teardown() -> None:
+    """Stop and remove quickstart containers."""
+    import contextlib
+    import subprocess
+
+    qs_dir = Path.home() / ".iceberg-meta-quickstart"
+    compose_file = qs_dir / "docker-compose.yml"
+
+    if not compose_file.exists():
+        console.print("[dim]No quickstart environment found.[/dim]")
+        return
+
+    console.print("[bold]Stopping quickstart containers...[/bold]")
+    with contextlib.suppress(Exception):
+        subprocess.run(
+            ["docker", "compose", "down", "-v"],
+            cwd=str(qs_dir),
+            capture_output=True,
+            text=True,
+            timeout=30,
+        )
+
+    shutil.rmtree(qs_dir, ignore_errors=True)
+
+    catalog_dir = Path("catalog")
+    if catalog_dir.exists():
+        shutil.rmtree(catalog_dir, ignore_errors=True)
+
+    console.print("[green]✓[/green] Quickstart cleaned up.")
 
 
 # ─── list-tables ──────────────────────────────────────────────
