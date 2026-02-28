@@ -2,44 +2,6 @@
 
 CLI and TUI for exploring Apache Iceberg table metadata. Inspect snapshots, schemas, manifests, data files, partition health, and column-level statistics -- without Spark or notebooks.
 
-## See it in action
-
-```
-$ iceberg-meta summary sales.orders
-
-┌─────────────────────────────────────────────────────────────────┐
-│                     sales.orders  Summary                       │
-├──────────────────────┬──────────────────────────────────────────┤
-│ Format version       │ 2                                        │
-│ Total snapshots      │ 4                                        │
-│ Total data files     │ 1                                        │
-│ Total records        │ 15                                       │
-│ Total size           │ 5.2 KB                                   │
-│ Partition spec       │ region (identity)                        │
-├──────────────────────┴──────────────────────────────────────────┤
-│ Recent Operations                                               │
-│  overwrite   2025-02-28 19:04    +15 rows   -60 rows            │
-│  append      2025-02-28 19:04    +20 rows   -0 rows             │
-│  append      2025-02-28 19:04    +15 rows   -0 rows             │
-└─────────────────────────────────────────────────────────────────┘
-```
-
-```
-$ iceberg-meta schema sales.customers --history
-
-Schema 0  (initial)
-├── customer_id: long
-├── name: string
-└── email: string
-
-Schema 1  (+2 fields)
-├── phone: string          ← added
-└── signup_date: date      ← added
-
-Schema 2  (1 rename)
-└── email_address: string  ← renamed from email
-```
-
 ## Install
 
 ```bash
@@ -140,6 +102,44 @@ iceberg-meta diff prod.customers 111 222
 ```bash
 iceberg-meta -o json summary db.events | jq '.file_count'
 iceberg-meta -o csv snapshots db.events > snapshots.csv
+```
+
+## See it in action
+
+```
+$ iceberg-meta summary sales.orders
+
+┌─────────────────────────────────────────────────────────────────┐
+│                     sales.orders  Summary                       │
+├──────────────────────┬──────────────────────────────────────────┤
+│ Format version       │ 2                                        │
+│ Total snapshots      │ 4                                        │
+│ Total data files     │ 1                                        │
+│ Total records        │ 15                                       │
+│ Total size           │ 5.2 KB                                   │
+│ Partition spec       │ region (identity)                        │
+├──────────────────────┴──────────────────────────────────────────┤
+│ Recent Operations                                               │
+│  overwrite   2025-02-28 19:04    +15 rows   -60 rows            │
+│  append      2025-02-28 19:04    +20 rows   -0 rows             │
+│  append      2025-02-28 19:04    +15 rows   -0 rows             │
+└─────────────────────────────────────────────────────────────────┘
+```
+
+```
+$ iceberg-meta schema sales.customers --history
+
+Schema 0  (initial)
+├── customer_id: long
+├── name: string
+└── email: string
+
+Schema 1  (+2 fields)
+├── phone: string          ← added
+└── signup_date: date      ← added
+
+Schema 2  (1 rename)
+└── email_address: string  ← renamed from email
 ```
 
 ## TUI Keybindings
