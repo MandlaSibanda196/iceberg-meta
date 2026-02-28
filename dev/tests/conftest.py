@@ -66,5 +66,20 @@ def sessions_table(catalog):
 
 
 @pytest.fixture(scope="session")
+def customers_table(catalog):
+    return catalog.load_table("sales.customers")
+
+
+@pytest.fixture(scope="session")
+def events_table(catalog):
+    return catalog.load_table("analytics.events")
+
+
+@pytest.fixture(scope="session")
+def landing_table(catalog):
+    return catalog.load_table("staging.landing_raw")
+
+
+@pytest.fixture(scope="session")
 def test_table(catalog):
     return catalog.load_table("sales.orders")
