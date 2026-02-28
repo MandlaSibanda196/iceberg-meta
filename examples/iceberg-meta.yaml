@@ -1,0 +1,84 @@
+# ── iceberg-meta configuration ─────────────────────────────────────
+#
+# Copy this file to ~/.iceberg-meta.yaml and uncomment the catalog(s)
+# you use.  Values wrapped in ${VAR} are resolved from the environment
+# at runtime -- never hard-code credentials in this file.
+#
+# Priority (highest wins):
+#   1. CLI flags (--uri, --warehouse)
+#   2. ICEBERG_META_* environment variables
+#   3. This config file
+#   4. pyiceberg's native config (~/.pyiceberg.yaml)
+#
+# Tip: keep secrets in your shell profile, a .env file, or a vault
+# and only reference them here with ${VAR}.
+
+default_catalog: local
+
+
+catalogs:
+
+  # ── Local development (SQL + MinIO) ──────────────────────────────
+  # Good for local dev / CI.  Pair with the quickstart/ docker-compose.
+  local:
+    type: sql
+    uri: ${ICEBERG_CATALOG_URI}
+    warehouse: ${ICEBERG_WAREHOUSE}
+    s3.endpoint: ${S3_ENDPOINT}
+    s3.access-key-id: ${AWS_ACCESS_KEY_ID}
+    s3.secret-access-key: ${AWS_SECRET_ACCESS_KEY}
+    s3.path-style-access: "true"
+    s3.region: ${AWS_REGION}
+
+  # ── AWS Glue ─────────────────────────────────────────────────────
+  # Uses IAM credentials from the environment (role, profile, or keys).
+  # export AWS_REGION=us-east-1
+  # export ICEBERG_WAREHOUSE=s3://my-data-lake/warehouse
+  #
+  # glue:
+  #   type: glue
+  #   warehouse: ${ICEBERG_WAREHOUSE}
+  #   s3.region: ${AWS_REGION}
+
+  # ── REST catalog (Tabular / Polaris / custom) ────────────────────
+  # export ICEBERG_REST_URI=https://api.tabular.io/ws
+  # export ICEBERG_REST_TOKEN=<your-token>
+  # export ICEBERG_WAREHOUSE=s3://my-bucket/warehouse
+  #
+  # rest:
+  #   type: rest
+  #   uri: ${ICEBERG_REST_URI}
+  #   warehouse: ${ICEBERG_WAREHOUSE}
+  #   credential: ${ICEBERG_REST_TOKEN}
+  #   s3.region: ${AWS_REGION}
+
+  # ── Nessie (Project Nessie / Dremio Arctic) ──────────────────────
+  # Note: Nessie exposes only the current snapshot per ref by default.
+  # export NESSIE_URI=http://localhost:19120/api/v1
+  # export ICEBERG_WAREHOUSE=s3://warehouse
+  #
+  # nessie:
+  #   type: rest
+  #   uri: ${NESSIE_URI}
+  #   warehouse: ${ICEBERG_WAREHOUSE}
+  #   s3.endpoint: ${S3_ENDPOINT}
+  #   s3.access-key-id: ${AWS_ACCESS_KEY_ID}
+  #   s3.secret-access-key: ${AWS_SECRET_ACCESS_KEY}
+  #   s3.region: ${AWS_REGION}
+
+  # ── Hive Metastore ──────────────────────────────────────────────
+  # export HIVE_URI=thrift://metastore.internal:9083
+  # export ICEBERG_WAREHOUSE=s3://data-lake/warehouse
+  #
+  # hive:
+  #   type: hive
+  #   uri: ${HIVE_URI}
+  #   warehouse: ${ICEBERG_WAREHOUSE}
+  #   s3.region: ${AWS_REGION}
+
+  # ── Hadoop catalog (HDFS / local filesystem) ────────────────────
+  # export ICEBERG_WAREHOUSE=hdfs://namenode:8020/warehouse
+  #
+  # hadoop:
+  #   type: hadoop
+  #   warehouse: ${ICEBERG_WAREHOUSE}

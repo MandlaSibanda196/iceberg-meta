@@ -1,0 +1,302 @@
+/* iceberg-meta TUI – lazygit-inspired theme */
+
+Screen {
+    background: $surface;
+}
+
+/* ── Sidebar ──────────────────────────────────────────── */
+
+#sidebar {
+    width: 32;
+    dock: left;
+    border: round $primary-lighten-2;
+    border-title-color: $text;
+    border-title-style: bold;
+    background: $surface-darken-1;
+    padding: 0 1;
+}
+
+#sidebar TableBrowser {
+    height: 1fr;
+}
+
+/* ── Tree widget styling ──────────────────────────────── */
+
+Tree > .tree--cursor {
+    background: $accent 25%;
+    color: $text;
+    text-style: bold;
+}
+
+Tree > .tree--highlight {
+    background: $accent 10%;
+}
+
+Tree > .tree--guides {
+    color: $surface-lighten-2;
+}
+
+Tree > .tree--guides-hover {
+    color: $accent;
+}
+
+Tree {
+    scrollbar-size: 1 1;
+}
+
+/* ── DataTable styling ────────────────────────────────── */
+
+DataTable > .datatable--cursor {
+    background: $accent 30%;
+    color: $text;
+    text-style: bold;
+}
+
+DataTable > .datatable--hover {
+    background: $surface-lighten-1;
+}
+
+DataTable > .datatable--header {
+    background: $primary-darken-2;
+    color: $text;
+    text-style: bold;
+}
+
+DataTable > .datatable--even-row {
+    background: $surface-darken-1;
+}
+
+DataTable > .datatable--odd-row {
+    background: $surface;
+}
+
+DataTable {
+    scrollbar-size: 1 1;
+}
+
+/* ── Detail pane (right side) ─────────────────────────── */
+
+#detail {
+    height: 1fr;
+    padding: 0;
+}
+
+#detail TabbedContent {
+    height: 1fr;
+}
+
+/* ── Tabs ─────────────────────────────────────────────── */
+
+TabbedContent ContentSwitcher {
+    height: 1fr;
+}
+
+TabPane {
+    padding: 0;
+    height: 1fr;
+}
+
+Tabs {
+    dock: top;
+    height: 3;
+    background: $surface-darken-1;
+}
+
+Tab {
+    padding: 0 2;
+    color: $text-muted;
+}
+
+Tab.-active {
+    color: $text;
+    text-style: bold;
+}
+
+Tab:hover {
+    color: $text;
+}
+
+Underline {
+    color: $accent;
+}
+
+/* ── Panel borders (lazygit-style labelled boxes) ─────── */
+
+SummaryPanel {
+    height: 1fr;
+    overflow-y: auto;
+    border: round $primary-lighten-2;
+    border-title-color: $text;
+    border-title-style: bold;
+    border-subtitle-color: $text-muted;
+    padding: 1 2;
+}
+
+SnapshotsPanel {
+    height: 1fr;
+    border: round $primary-lighten-2;
+    border-title-color: $text;
+    border-title-style: bold;
+    border-subtitle-color: $text-muted;
+    padding: 0;
+}
+
+SnapshotsPanel DataTable {
+    height: 1fr;
+}
+
+SchemaPanel {
+    height: 1fr;
+    border: round $primary-lighten-2;
+    border-title-color: $text;
+    border-title-style: bold;
+    border-subtitle-color: $text-muted;
+    padding: 0;
+}
+
+SchemaPanel Tree {
+    height: 1fr;
+}
+
+FilesPanel {
+    height: 1fr;
+    border: round $primary-lighten-2;
+    border-title-color: $text;
+    border-title-style: bold;
+    border-subtitle-color: $text-muted;
+    padding: 0;
+}
+
+FilesPanel #files-header {
+    height: auto;
+    margin: 0 1;
+}
+
+FilesPanel DataTable {
+    height: 1fr;
+}
+
+HealthPanel {
+    height: 1fr;
+    overflow-y: auto;
+    border: round $primary-lighten-2;
+    border-title-color: $text;
+    border-title-style: bold;
+    border-subtitle-color: $text-muted;
+    padding: 1 2;
+}
+
+ManifestsPanel {
+    height: 1fr;
+    border: round $primary-lighten-2;
+    border-title-color: $text;
+    border-title-style: bold;
+    border-subtitle-color: $text-muted;
+    padding: 0;
+}
+
+ManifestsPanel DataTable {
+    height: 1fr;
+}
+
+MetadataTreePanel {
+    height: 1fr;
+    border: round $primary-lighten-2;
+    border-title-color: $text;
+    border-title-style: bold;
+    border-subtitle-color: $text-muted;
+    padding: 0;
+}
+
+MetadataTreePanel Tree {
+    height: 1fr;
+}
+
+/* ── Catalog overview panel ───────────────────────────── */
+
+CatalogOverviewPanel {
+    height: 1fr;
+    overflow-y: auto;
+    border: round $accent;
+    border-title-color: $text;
+    border-title-style: bold;
+    border-subtitle-color: $text-muted;
+    padding: 1 2;
+}
+
+/* ── Chrome ───────────────────────────────────────────── */
+
+#app-title {
+    dock: top;
+    height: 1;
+    width: 1fr;
+    content-align: center middle;
+    text-style: bold;
+    background: $primary-darken-3;
+    color: $text;
+}
+
+Footer {
+    background: $primary-darken-3;
+}
+
+Footer > .footer--key {
+    background: $accent;
+    color: $text;
+    text-style: bold;
+}
+
+Footer > .footer--description {
+    color: $text-muted;
+}
+
+#no-table {
+    width: 1fr;
+    height: 1fr;
+    content-align: center middle;
+    text-align: center;
+    color: $text-muted;
+    text-style: italic;
+    border: round $surface-lighten-2;
+    border-title-color: $text;
+    border-title-style: bold;
+}
+
+/* ── Modal screens ────────────────────────────────────── */
+
+ModalScreen {
+    align: center middle;
+    background: $surface 85%;
+}
+
+#diff-container {
+    width: 85%;
+    height: 85%;
+    border: round $accent;
+    border-title-color: $text;
+    border-title-style: bold;
+    background: $surface;
+    padding: 1 2;
+    overflow-y: auto;
+}
+
+#diff-content {
+    height: auto;
+    margin-bottom: 1;
+}
+
+#diff-close {
+    dock: bottom;
+    width: auto;
+    margin-top: 1;
+}
+
+/* ── Scrollbars (thin, minimal) ───────────────────────── */
+
+* {
+    scrollbar-background: $surface-darken-1;
+    scrollbar-color: $surface-lighten-2;
+    scrollbar-color-hover: $accent;
+    scrollbar-color-active: $accent;
+    scrollbar-size-vertical: 1;
+}

@@ -1,0 +1,41 @@
+# iceberg-meta configuration
+#
+# Values wrapped in ${VAR} are resolved from the environment at runtime.
+# Copy this to ~/.iceberg-meta.yaml and source your .env before running.
+
+default_catalog: local
+
+catalogs:
+  # Local SQL catalog backed by MinIO (Docker quickstart)
+  local:
+    type: sql
+    uri: ${ICEBERG_CATALOG_URI}
+    warehouse: ${ICEBERG_WAREHOUSE}
+    s3.endpoint: ${S3_ENDPOINT}
+    s3.access-key-id: ${AWS_ACCESS_KEY_ID}
+    s3.secret-access-key: ${AWS_SECRET_ACCESS_KEY}
+    s3.path-style-access: "true"
+    s3.region: ${AWS_REGION}
+
+  # -- AWS Glue catalog --
+  # production:
+  #   type: glue
+  #   warehouse: ${ICEBERG_WAREHOUSE}
+  #   s3.region: ${AWS_REGION}
+
+  # -- Nessie REST catalog --
+  # Note: Nessie catalog mode only exposes the current snapshot.
+  # nessie:
+  #   type: rest
+  #   uri: ${NESSIE_URI}
+  #   warehouse: ${ICEBERG_WAREHOUSE}
+  #   s3.endpoint: ${S3_ENDPOINT}
+  #   s3.access-key-id: ${AWS_ACCESS_KEY_ID}
+  #   s3.secret-access-key: ${AWS_SECRET_ACCESS_KEY}
+  #   s3.region: ${AWS_REGION}
+
+  # -- Hive Metastore --
+  # hive:
+  #   type: hive
+  #   uri: thrift://localhost:9083
+  #   warehouse: ${ICEBERG_WAREHOUSE}

@@ -1,0 +1,21 @@
+__pycache__/
+*.py[cod]
+*.egg-info/
+dist/
+build/
+.venv/
+*.egg
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+uv.lock
+
+# Local catalog databases
+catalog/
+dev/catalog/
+quickstart/catalog/
+
+# Environment files (contain credentials)
+.env
+dev/.env
+quickstart/.env

@@ -1,0 +1,854 @@
+"""Iceberg Metadata Explorer CLI."""
+
+from __future__ import annotations
+
+import time
+from pathlib import Path
+from typing import Optional
+
+import typer
+from dotenv import load_dotenv
+from rich.console import Console
+
+from iceberg_meta import __version__, formatters
+from iceberg_meta.utils import format_timestamp_ms
+from iceberg_meta.catalog import (
+    CONFIG_FILE,
+    CatalogConfig,
+    get_table,
+    list_all_tables,
+    merge_config_file,
+    resolve_catalog_config,
+    test_connection,
+    write_config_file,
+)
+from iceberg_meta.output import OutputFormat
+
+
+def _version_callback(value: bool) -> None:
+    if value:
+        typer.echo(f"iceberg-meta {__version__}")
+        raise typer.Exit()
+
+
+app = typer.Typer(
+    name="iceberg-meta",
+    help="Explore Apache Iceberg table metadata.",
+    no_args_is_help=True,
+)
+console = Console()
+err_console = Console(stderr=True)
+
+
+# ─── error handling ───────────────────────────────────────────
+
+
+def _friendly_error(e: Exception, config: CatalogConfig, table: str | None = None) -> None:
+    """Print a friendly error message instead of a raw traceback."""
+    msg = str(e).lower()
+    etype = type(e).__name__.lower()
+
+    if "could not connect" in msg or "connection" in msg or "urlopen" in msg or "refused" in msg:
+        uri = config.properties.get("uri", "unknown")
+        err_console.print(
+            f"[red bold]Connection failed:[/red bold] Could not connect to catalog at {uri}\n"
+            "  Is the catalog running? Try: docker compose up -d"
+        )
+    elif "timeout" in msg or "timed out" in msg:
+        uri = config.properties.get("uri", "unknown")
+        err_console.print(
+            f"[red bold]Connection timed out:[/red bold] Catalog at {uri} did not respond.\n"
+            "  Is the catalog reachable? Check your network and URI."
+        )
+    elif "unable to open database" in msg or "no such table" in msg:
+        uri = config.properties.get("uri", "unknown")
+        err_console.print(
+            f"[red bold]Database error:[/red bold] Could not open catalog database.\n"
+            f"  URI: {uri}\n"
+            "  If using SQLite, make sure the database file exists.\n"
+            "  Try: [bold]make infra-up && make seed[/bold]"
+        )
+    elif "database is locked" in msg:
+        err_console.print(
+            "[red bold]Database locked:[/red bold] Another process is using the catalog database.\n"
+            "  Wait a moment and try again, or check for other running processes."
+        )
+    elif "snapshot" in msg and "not found" in msg:
+        err_console.print(f"[red bold]Snapshot not found:[/red bold] {e}\n"
+            "  Run [bold]iceberg-meta snapshots <table>[/bold] to see valid snapshot IDs."
+        )
+    elif ("nosuch" in msg or "not found" in msg
+            or ("table" in msg and "does not exist" in msg)):
+        err_console.print(
+            f"[red bold]Table not found:[/red bold] '{table or 'unknown'}'\n"
+            "  Run [bold]iceberg-meta list-tables[/bold] to see available tables."
+        )
+    elif "nosuchnamespace" in etype or "namespace" in msg and "not found" in msg:
+        err_console.print(
+            f"[red bold]Namespace not found.[/red bold]\n"
+            "  Run [bold]iceberg-meta list-tables[/bold] to see available namespaces."
+        )
+    elif ("unauthorized" in msg or "401" in msg
+            or "unauthorizederror" in etype):
+        err_console.print(
+            "[red bold]Authentication failed:[/red bold] Credentials are invalid or expired.\n"
+            "  Check your access key, secret key, and any session tokens."
+        )
+    elif "access denied" in msg or "forbidden" in msg or "403" in msg:
+        err_console.print(
+            "[red bold]Access denied:[/red bold] S3 credentials may be invalid.\n"
+            "  Check s3.access-key-id and s3.secret-access-key in your config."
+        )
+    elif "signature" in msg or "signerror" in etype or "signing" in msg:
+        err_console.print(
+            "[red bold]S3 signing error:[/red bold] Request signing failed.\n"
+            "  Check your AWS credentials and region (s3.region in config)."
+        )
+    elif "notinstalled" in etype or "no module named" in msg:
+        err_console.print(
+            f"[red bold]Missing dependency:[/red bold] {e}\n"
+            "  Install the required optional dependency and try again."
+        )
+    elif ("invalid" in msg and ("table" in msg or "identifier" in msg or "does not contain" in msg)
+            or "empty namespace" in msg):
+        err_console.print(
+            f"[red bold]Invalid table name:[/red bold] '{table or 'unknown'}'\n"
+            "  Use the format [bold]namespace.table_name[/bold]"
+        )
+    elif "500" in msg or "server error" in msg or "internal server error" in msg:
+        err_console.print(
+            "[red bold]Server error:[/red bold] The catalog server returned an internal error.\n"
+            "  Check the catalog server logs for details."
+        )
+    elif "yaml" in etype:
+        err_console.print(
+            "[red bold]Config error:[/red bold] Invalid YAML in your config file.\n"
+            f"  {e}"
+        )
+    elif not config.properties:
+        err_console.print(
+            "[red bold]No catalog configured.[/red bold]\n"
+            "  Run [bold]iceberg-meta init[/bold] to set up a catalog, or pass --uri."
+        )
+    else:
+        err_console.print(f"[red bold]Error:[/red bold] {e}")
+    raise SystemExit(1)
+
+
+def _run(fn, config: CatalogConfig, table: str | None = None):
+    """Execute *fn* with friendly error handling."""
+    try:
+        return fn()
+    except SystemExit:
+        raise
+    except Exception as e:
+        _friendly_error(e, config, table)
+
+
+# ─── global callback ─────────────────────────────────────────
+
+
+@app.callback()
+def main(
+    ctx: typer.Context,
+    catalog_name: Optional[str] = typer.Option(
+        None, "--catalog", "-c", help="Catalog name (from config file)"
+    ),
+    catalog_uri: Optional[str] = typer.Option(None, "--uri", help="Catalog URI"),
+    warehouse: Optional[str] = typer.Option(
+        None, "--warehouse", "-w", help="Warehouse path"
+    ),
+    output: OutputFormat = typer.Option(
+        OutputFormat.TABLE, "--output", "-o", help="Output format (table, json, csv)"
+    ),
+    env_file: Optional[Path] = typer.Option(
+        None, "--env-file", "-e", help="Path to .env file to load",
+        exists=True, dir_okay=False,
+    ),
+    version: Optional[bool] = typer.Option(
+        None, "--version", "-V", help="Show version and exit",
+        callback=_version_callback, is_eager=True,
+    ),
+):
+    """Explore Apache Iceberg table metadata."""
+    if env_file:
+        load_dotenv(env_file, override=True)
+    else:
+        load_dotenv()
+
+    ctx.ensure_object(dict)
+
+    invoked = ctx.invoked_subcommand
+    if invoked in ("init", "doctor"):
+        ctx.obj["output_format"] = output
+        return
+
+    try:
+        ctx.obj["catalog_config"] = resolve_catalog_config(
+            catalog_name=catalog_name,
+            catalog_uri=catalog_uri,
+            warehouse=warehouse,
+        )
+    except ValueError as exc:
+        exc_msg = str(exc)
+        err_console.print(f"[red bold]Config error:[/red bold] {exc_msg}")
+
+        if "referenced in config but not set" in exc_msg:
+            err_console.print(
+                "\n  Your config file uses ${{VAR}} placeholders that need matching\n"
+                "  environment variables.\n\n"
+                "  Option 1 -- place a .env file in your working directory:\n"
+                "    iceberg-meta picks up .env automatically (no 'source' needed)\n\n"
+                "  Option 2 -- point to a specific .env file:\n"
+                "    [bold]iceberg-meta --env-file path/to/.env list-tables[/bold]\n\n"
+                "  Option 3 -- export variables in your shell:\n"
+                "    [bold]export ICEBERG_CATALOG_URI=...[/bold]\n"
+                "    [bold]export AWS_ACCESS_KEY_ID=...[/bold]\n\n"
+                "  Run [bold]iceberg-meta doctor[/bold] to diagnose further."
+            )
+        elif "not found in" in exc_msg and "Available catalogs:" in exc_msg:
+            err_console.print(
+                "\n  Use [bold]--catalog NAME[/bold] with one of the catalogs listed above,\n"
+                "  or run [bold]iceberg-meta init[/bold] to add a new one."
+            )
+        elif "invalid yaml" in exc_msg.lower():
+            err_console.print(
+                "\n  Fix the syntax error in your config file and try again."
+            )
+
+        raise SystemExit(1) from None
+
+    if not ctx.obj.get("catalog_config"):
+        if not CONFIG_FILE.exists() and not catalog_uri:
+            err_console.print(
+                "[yellow bold]No catalog configured.[/yellow bold]\n\n"
+                "  Get started in 30 seconds:\n\n"
+                "    [bold]iceberg-meta init[/bold]\n\n"
+                "  Or pass a catalog URI directly:\n\n"
+                "    [bold]iceberg-meta --uri sqlite:///catalog.db list-tables[/bold]\n"
+            )
+            raise SystemExit(1)
+
+    ctx.obj["output_format"] = output
+
+
+# ─── init ─────────────────────────────────────────────────────
+
+
+_PRESETS: dict[str, dict[str, str]] = {
+    "sql": {
+        "type": "sql",
+        "uri": "${ICEBERG_CATALOG_URI}",
+        "warehouse": "${ICEBERG_WAREHOUSE}",
+        "s3.endpoint": "${S3_ENDPOINT}",
+        "s3.access-key-id": "${AWS_ACCESS_KEY_ID}",
+        "s3.secret-access-key": "${AWS_SECRET_ACCESS_KEY}",
+        "s3.path-style-access": "true",
+        "s3.region": "${AWS_REGION}",
+    },
+    "glue": {
+        "type": "glue",
+        "warehouse": "${ICEBERG_WAREHOUSE}",
+        "s3.region": "${AWS_REGION}",
+    },
+    "rest": {
+        "type": "rest",
+        "uri": "${ICEBERG_REST_URI}",
+        "warehouse": "${ICEBERG_WAREHOUSE}",
+        "s3.region": "${AWS_REGION}",
+    },
+    "hive": {
+        "type": "hive",
+        "uri": "${HIVE_URI}",
+        "warehouse": "${ICEBERG_WAREHOUSE}",
+        "s3.region": "${AWS_REGION}",
+    },
+}
+
+_PRESET_DESCRIPTIONS = {
+    "sql": "SQL catalog + S3/MinIO  (local dev, CI, SQLite/Postgres)",
+    "glue": "AWS Glue Data Catalog  (uses IAM credentials)",
+    "rest": "REST catalog  (Tabular, Polaris, or custom)",
+    "hive": "Hive Metastore  (Thrift)",
+}
+
+_PRESET_ENV_HINTS: dict[str, list[str]] = {
+    "sql": [
+        "ICEBERG_CATALOG_URI=sqlite:///catalog/iceberg_catalog.db",
+        "ICEBERG_WAREHOUSE=s3://warehouse",
+        "S3_ENDPOINT=http://localhost:9000",
+        "AWS_ACCESS_KEY_ID=admin",
+        "AWS_SECRET_ACCESS_KEY=password",
+        "AWS_REGION=us-east-1",
+    ],
+    "glue": [
+        "ICEBERG_WAREHOUSE=s3://your-bucket/warehouse",
+        "AWS_REGION=us-east-1",
+    ],
+    "rest": [
+        "ICEBERG_REST_URI=https://api.tabular.io/ws",
+        "ICEBERG_WAREHOUSE=s3://your-bucket/warehouse",
+        "AWS_REGION=us-east-1",
+    ],
+    "hive": [
+        "HIVE_URI=thrift://localhost:9083",
+        "ICEBERG_WAREHOUSE=s3://your-bucket/warehouse",
+        "AWS_REGION=us-east-1",
+    ],
+}
+
+
+@app.command()
+def init(ctx: typer.Context) -> None:
+    """Interactive setup -- configure a catalog connection.
+
+    Creates or updates ~/.iceberg-meta.yaml. Credentials are stored as
+    ${VAR} placeholders so secrets stay in the environment, not on disk.
+    """
+    console.print("[bold]iceberg-meta setup[/bold]\n")
+
+    if CONFIG_FILE.exists():
+        console.print(f"[dim]Config file found: {CONFIG_FILE}[/dim]")
+        console.print("[dim]A new catalog will be added alongside existing ones.[/dim]\n")
+
+    # -- preset selection --
+    console.print("[bold]Choose your catalog type:[/bold]\n")
+    preset_names = list(_PRESETS)
+    for i, key in enumerate(preset_names, 1):
+        console.print(f"  [bold cyan]{i}[/bold cyan]  {_PRESET_DESCRIPTIONS[key]}")
+    console.print()
+
+    choice = typer.prompt("Enter number", default="1")
+    try:
+        preset_key = preset_names[int(choice) - 1]
+    except (ValueError, IndexError):
+        err_console.print(f"[red]Invalid choice: {choice}[/red]")
+        raise SystemExit(1) from None
+
+    # -- catalog name --
+    default_name = preset_key if preset_key != "sql" else "local"
+    name = typer.prompt("Catalog name", default=default_name)
+
+    # -- build properties from preset, let user override --
+    props = dict(_PRESETS[preset_key])
+    console.print(
+        f"\n[dim]The config uses ${{VAR}} placeholders resolved from the environment.[/dim]"
+    )
+    console.print("[dim]Press Enter to keep each default, or type a value to override.[/dim]\n")
+
+    final_props: dict[str, str] = {}
+    for key, default_val in props.items():
+        label = key
+        val = typer.prompt(f"  {label}", default=default_val)
+        final_props[key] = val
+
+    make_default = typer.confirm("\nSet as default catalog?", default=True)
+
+    # -- write config --
+    try:
+        path = merge_config_file(name, final_props, make_default=make_default)
+    except ValueError as exc:
+        err_console.print(f"[red bold]Config error:[/red bold] {exc}")
+        raise SystemExit(1) from None
+
+    console.print(f"\n[green]✓ Saved to {path}[/green]")
+
+    # -- show required env vars --
+    placeholders = [v for v in final_props.values() if "${" in str(v)]
+    if placeholders:
+        console.print("\n[bold]Set these environment variables[/bold] (in .env or your shell):\n")
+        env_hints = _PRESET_ENV_HINTS.get(preset_key, [])
+        if env_hints:
+            for hint in env_hints:
+                console.print(f"  {hint}")
+        else:
+            for v in placeholders:
+                var_name = v.replace("${", "").replace("}", "")
+                console.print(f"  {var_name}=<your-value>")
+        console.print(
+            "\n[dim]Tip: place a .env file in your working directory — "
+            "iceberg-meta loads it automatically.[/dim]"
+        )
+
+    # -- test connection --
+    console.print()
+    if typer.confirm("Test the connection now?", default=True):
+        try:
+            load_dotenv(override=True)
+            config = resolve_catalog_config(catalog_name=name)
+            result = test_connection(config)
+            ns = result["namespace_count"]
+            tbl = result["table_count"]
+            console.print(
+                f"\n[green bold]✓ Connected![/green bold]  "
+                f"Found {ns} namespace{'s' if ns != 1 else ''}, "
+                f"{tbl} table{'s' if tbl != 1 else ''}"
+            )
+        except Exception as exc:
+            console.print(f"\n[yellow]Connection failed:[/yellow] {exc}")
+            console.print(
+                "[dim]This is normal if the environment variables aren't set yet.\n"
+                "Set them and run [bold]iceberg-meta doctor[/bold] to verify.[/dim]"
+            )
+
+    console.print(
+        "\n[bold]Next steps:[/bold]\n"
+        "  [bold]iceberg-meta list-tables[/bold]       Discover tables\n"
+        "  [bold]iceberg-meta tui[/bold]               Interactive browser\n"
+        "  [bold]iceberg-meta doctor[/bold]             Verify config & connection\n"
+    )
+
+
+# ─── doctor ───────────────────────────────────────────────────
+
+
+@app.command()
+def doctor(ctx: typer.Context) -> None:
+    """Check configuration, environment variables, and catalog connectivity."""
+    import os
+    import re
+
+    load_dotenv(override=True)
+    ok_count = 0
+    warn_count = 0
+    fail_count = 0
+
+    def _ok(msg: str) -> None:
+        nonlocal ok_count
+        ok_count += 1
+        console.print(f"  [green]✓[/green] {msg}")
+
+    def _warn(msg: str) -> None:
+        nonlocal warn_count
+        warn_count += 1
+        console.print(f"  [yellow]![/yellow] {msg}")
+
+    def _fail(msg: str) -> None:
+        nonlocal fail_count
+        fail_count += 1
+        console.print(f"  [red]✗[/red] {msg}")
+
+    console.print("[bold]iceberg-meta doctor[/bold]\n")
+
+    # -- config file --
+    console.print("[bold]Config file[/bold]")
+    if CONFIG_FILE.exists():
+        _ok(f"Found {CONFIG_FILE}")
+        try:
+            from iceberg_meta.catalog import load_config_file
+            file_config = load_config_file()
+            catalogs = file_config.get("catalogs", {})
+            if catalogs:
+                default_cat = file_config.get("default_catalog", "(none)")
+                _ok(f"{len(catalogs)} catalog(s) configured: {', '.join(sorted(catalogs))}")
+                _ok(f"Default catalog: {default_cat}")
+            else:
+                _warn("Config file exists but has no catalogs defined")
+        except Exception as exc:
+            _fail(f"Could not parse config: {exc}")
+    else:
+        _warn(
+            f"No config file at {CONFIG_FILE} — "
+            "run [bold]iceberg-meta init[/bold] to create one"
+        )
+    console.print()
+
+    # -- environment variables --
+    console.print("[bold]Environment variables[/bold]")
+    dotenv_path = Path(".env")
+    if dotenv_path.exists():
+        _ok(f".env file found in {dotenv_path.resolve()}")
+    else:
+        console.print("  [dim]-[/dim] No .env file in current directory (optional)")
+
+    if CONFIG_FILE.exists():
+        try:
+            file_config = load_config_file()
+            all_props = {}
+            for cat_props in file_config.get("catalogs", {}).values():
+                all_props.update(cat_props)
+            referenced_vars: set[str] = set()
+            for val in all_props.values():
+                if isinstance(val, str):
+                    referenced_vars.update(re.findall(r"\$\{(\w+)\}", val))
+            if referenced_vars:
+                for var in sorted(referenced_vars):
+                    env_val = os.environ.get(var)
+                    if env_val:
+                        display = env_val[:4] + "***" if "secret" in var.lower() or "password" in var.lower() else env_val
+                        _ok(f"${{{var}}} = {display}")
+                    else:
+                        _fail(f"${{{var}}} is not set")
+            else:
+                console.print("  [dim]-[/dim] No ${VAR} placeholders used in config")
+        except Exception:
+            pass
+    console.print()
+
+    # -- catalog connectivity --
+    console.print("[bold]Catalog connectivity[/bold]")
+    try:
+        config = resolve_catalog_config()
+        _ok(f"Config resolved for catalog '{config.catalog_name}'")
+        try:
+            result = test_connection(config)
+            ns = result["namespace_count"]
+            tbl = result["table_count"]
+            _ok(
+                f"Connected — {ns} namespace{'s' if ns != 1 else ''}, "
+                f"{tbl} table{'s' if tbl != 1 else ''}"
+            )
+        except Exception as exc:
+            _fail(f"Connection failed: {exc}")
+    except Exception as exc:
+        _fail(f"Could not resolve config: {exc}")
+    console.print()
+
+    # -- summary --
+    total = ok_count + warn_count + fail_count
+    if fail_count:
+        console.print(
+            f"[red bold]{fail_count} problem{'s' if fail_count != 1 else ''}[/red bold] "
+            f"found out of {total} checks"
+        )
+    elif warn_count:
+        console.print(
+            f"[yellow]All clear[/yellow] with {warn_count} warning{'s' if warn_count != 1 else ''}"
+        )
+    else:
+        console.print("[green bold]Everything looks good![/green bold]")
+
+
+# ─── list-tables ──────────────────────────────────────────────
+
+
+@app.command("list-tables")
+def list_tables_cmd(ctx: typer.Context) -> None:
+    """List all namespaces and tables in the catalog."""
+    config: CatalogConfig = ctx.obj["catalog_config"]
+    fmt: OutputFormat = ctx.obj["output_format"]
+
+    def _do():
+        tables_by_ns = list_all_tables(config)
+        formatters.render_list_tables(console, tables_by_ns, fmt=fmt)
+
+    _run(_do, config)
+
+
+# ─── table-info ───────────────────────────────────────────────
+
+
+@app.command("table-info")
+def table_info(
+    ctx: typer.Context,
+    table: str = typer.Argument(help="Table identifier (namespace.table_name)"),
+):
+    """Show table overview: format version, location, UUID, schema, partition spec, properties."""
+    config: CatalogConfig = ctx.obj["catalog_config"]
+    fmt: OutputFormat = ctx.obj["output_format"]
+
+    def _do():
+        tbl = get_table(config, table)
+        formatters.render_table_info(console, tbl, fmt=fmt)
+
+    _run(_do, config, table)
+
+
+# ─── snapshots ────────────────────────────────────────────────
+
+
+@app.command()
+def snapshots(
+    ctx: typer.Context,
+    table: str = typer.Argument(help="Table identifier (namespace.table_name)"),
+    watch: Optional[int] = typer.Option(
+        None, "--watch", "-W", help="Refresh every N seconds"
+    ),
+):
+    """List all snapshots with timestamps, operations, and summary stats."""
+    config: CatalogConfig = ctx.obj["catalog_config"]
+    fmt: OutputFormat = ctx.obj["output_format"]
+
+    if watch is not None:
+        _watch_snapshots(config, table, interval=watch, fmt=fmt)
+        return
+
+    def _do():
+        tbl = get_table(config, table)
+        formatters.render_snapshots(console, tbl, fmt=fmt)
+
+    _run(_do, config, table)
+
+
+def _watch_snapshots(
+    config: CatalogConfig, table: str, *, interval: int, fmt: OutputFormat
+) -> None:
+    """Poll the catalog and refresh snapshots every *interval* seconds."""
+    from rich.live import Live
+
+    from rich.table import Table as RichTable
+
+    seen_ids: set[int] = set()
+    try:
+        with Live(console=console, refresh_per_second=1) as live:
+            while True:
+                try:
+                    tbl = get_table(config, table)
+                    current_ids = {s.snapshot_id for s in tbl.metadata.snapshots}
+                    new_ids = current_ids - seen_ids
+                    seen_ids = current_ids
+
+                    rt = RichTable(
+                        title=f"Snapshots (refreshing every {interval}s)", show_lines=True
+                    )
+                    rt.add_column("Snapshot ID", style="bold")
+                    rt.add_column("Timestamp", style="green")
+                    rt.add_column("Parent ID")
+                    rt.add_column("Operation", style="yellow")
+                    rt.add_column("New?", justify="center")
+
+                    for snap in tbl.metadata.snapshots:
+                        marker = "[bold green]NEW[/bold green]" if snap.snapshot_id in new_ids else ""
+                        rt.add_row(
+                            str(snap.snapshot_id),
+                            format_timestamp_ms(snap.timestamp_ms),
+                            str(snap.parent_snapshot_id or "-"),
+                            snap.summary.operation.value if snap.summary else "-",
+                            marker,
+                        )
+                    live.update(rt)
+                except Exception as exc:
+                    err_console.print(
+                        f"[yellow]Watch poll failed:[/yellow] {exc}  (retrying in {interval}s)"
+                    )
+                time.sleep(interval)
+    except KeyboardInterrupt:
+        console.print("\n[dim]Watch stopped.[/dim]")
+
+
+# ─── schema ───────────────────────────────────────────────────
+
+
+@app.command()
+def schema(
+    ctx: typer.Context,
+    table: str = typer.Argument(help="Table identifier (namespace.table_name)"),
+    history: bool = typer.Option(False, "--history", help="Show all historical schemas"),
+):
+    """Show current schema as a tree. Use --history to see all versions."""
+    config: CatalogConfig = ctx.obj["catalog_config"]
+
+    def _do():
+        tbl = get_table(config, table)
+        if history:
+            formatters.render_schema_history(console, tbl)
+        else:
+            formatters.render_schema(console, tbl.schema())
+
+    _run(_do, config, table)
+
+
+# ─── manifests ────────────────────────────────────────────────
+
+
+@app.command()
+def manifests(
+    ctx: typer.Context,
+    table: str = typer.Argument(help="Table identifier (namespace.table_name)"),
+    snapshot_id: Optional[int] = typer.Option(
+        None, "--snapshot-id", "-s", help="Specific snapshot ID"
+    ),
+):
+    """Show manifest files for the current or specified snapshot."""
+    config: CatalogConfig = ctx.obj["catalog_config"]
+    fmt: OutputFormat = ctx.obj["output_format"]
+
+    def _do():
+        tbl = get_table(config, table)
+        formatters.render_manifests(console, tbl, snapshot_id=snapshot_id, fmt=fmt)
+
+    _run(_do, config, table)
+
+
+# ─── files ────────────────────────────────────────────────────
+
+
+@app.command()
+def files(
+    ctx: typer.Context,
+    table: str = typer.Argument(help="Table identifier (namespace.table_name)"),
+    snapshot_id: Optional[int] = typer.Option(
+        None, "--snapshot-id", "-s", help="Specific snapshot ID"
+    ),
+):
+    """Show data files with sizes, row counts, and file format."""
+    config: CatalogConfig = ctx.obj["catalog_config"]
+    fmt: OutputFormat = ctx.obj["output_format"]
+
+    def _do():
+        tbl = get_table(config, table)
+        formatters.render_files(console, tbl, snapshot_id=snapshot_id, fmt=fmt)
+
+    _run(_do, config, table)
+
+
+# ─── partitions ───────────────────────────────────────────────
+
+
+@app.command()
+def partitions(
+    ctx: typer.Context,
+    table: str = typer.Argument(help="Table identifier (namespace.table_name)"),
+):
+    """Show partition statistics."""
+    config: CatalogConfig = ctx.obj["catalog_config"]
+    fmt: OutputFormat = ctx.obj["output_format"]
+
+    def _do():
+        tbl = get_table(config, table)
+        formatters.render_partitions(console, tbl, fmt=fmt)
+
+    _run(_do, config, table)
+
+
+# ─── health ───────────────────────────────────────────────────
+
+
+@app.command()
+def health(
+    ctx: typer.Context,
+    table: str = typer.Argument(help="Table identifier (namespace.table_name)"),
+):
+    """Comprehensive table health report.
+
+    File sizes, small-file detection, delete file accumulation,
+    partition skew, column null rates, column sizes, and column bounds.
+    """
+    config: CatalogConfig = ctx.obj["catalog_config"]
+    fmt: OutputFormat = ctx.obj["output_format"]
+
+    def _do():
+        tbl = get_table(config, table)
+        formatters.render_table_health(console, tbl, fmt=fmt)
+
+    _run(_do, config, table)
+
+
+# ─── snapshot-detail ──────────────────────────────────────────
+
+
+@app.command("snapshot-detail")
+def snapshot_detail(
+    ctx: typer.Context,
+    table: str = typer.Argument(help="Table identifier (namespace.table_name)"),
+    snapshot_id: int = typer.Argument(help="Snapshot ID to inspect"),
+):
+    """Deep dive into a specific snapshot: manifests and files."""
+    config: CatalogConfig = ctx.obj["catalog_config"]
+    fmt: OutputFormat = ctx.obj["output_format"]
+
+    def _do():
+        tbl = get_table(config, table)
+        formatters.render_snapshot_detail(console, tbl, snapshot_id, fmt=fmt)
+
+    _run(_do, config, table)
+
+
+# ─── summary ──────────────────────────────────────────────────
+
+
+@app.command()
+def summary(
+    ctx: typer.Context,
+    table: str = typer.Argument(help="Table identifier (namespace.table_name)"),
+):
+    """Show a single-screen summary dashboard with key metrics."""
+    config: CatalogConfig = ctx.obj["catalog_config"]
+    fmt: OutputFormat = ctx.obj["output_format"]
+
+    def _do():
+        tbl = get_table(config, table)
+        formatters.render_summary(console, tbl, fmt=fmt)
+
+    _run(_do, config, table)
+
+
+# ─── diff ─────────────────────────────────────────────────────
+
+
+@app.command()
+def diff(
+    ctx: typer.Context,
+    table: str = typer.Argument(help="Table identifier (namespace.table_name)"),
+    snap1: int = typer.Argument(help="First (older) snapshot ID"),
+    snap2: int = typer.Argument(help="Second (newer) snapshot ID"),
+):
+    """Show what changed between two snapshots."""
+    config: CatalogConfig = ctx.obj["catalog_config"]
+    fmt: OutputFormat = ctx.obj["output_format"]
+
+    def _do():
+        tbl = get_table(config, table)
+        formatters.render_diff(console, tbl, snap1, snap2, fmt=fmt)
+
+    _run(_do, config, table)
+
+
+# ─── tree ─────────────────────────────────────────────────────
+
+
+@app.command()
+def tui(ctx: typer.Context) -> None:
+    """Launch the interactive terminal UI.
+
+    Requires: pip install iceberg-meta[tui]
+    """
+    try:
+        from iceberg_meta.tui.app import IcebergMetaApp
+    except ImportError:
+        err_console.print(
+            "[red bold]Missing dependency:[/red bold] The TUI requires the 'textual' package.\n"
+            "  Install it with: [bold]pip install iceberg-meta\\[tui][/bold]"
+        )
+        raise SystemExit(1) from None
+
+    config: CatalogConfig = ctx.obj["catalog_config"]
+    tui_app = IcebergMetaApp(catalog_config=config)
+    try:
+        tui_app.run()
+    except Exception as exc:
+        err_console.print(
+            f"[red bold]TUI crashed:[/red bold] {exc}\n"
+            "  Try the CLI commands instead, e.g. [bold]iceberg-meta list-tables[/bold]"
+        )
+        raise SystemExit(1) from None
+
+
+@app.command()
+def tree(
+    ctx: typer.Context,
+    table: str = typer.Argument(help="Table identifier (namespace.table_name)"),
+    snapshot_id: Optional[int] = typer.Option(
+        None, "--snapshot-id", "-s", help="Specific snapshot (default: current)"
+    ),
+    max_files: int = typer.Option(
+        10, "--max-files", "-m", help="Max data files to show per manifest"
+    ),
+    all_snapshots: bool = typer.Option(
+        False, "--all-snapshots", "-a", help="Show all snapshots in the tree"
+    ),
+):
+    """Visualize the full metadata hierarchy as a tree.
+
+    Snapshot -> Manifest List -> Manifests -> Data Files
+    """
+    config: CatalogConfig = ctx.obj["catalog_config"]
+
+    def _do():
+        tbl = get_table(config, table)
+        formatters.render_metadata_tree(
+            console, tbl, snapshot_id=snapshot_id, max_files=max_files,
+            all_snapshots=all_snapshots,
+        )
+
+    _run(_do, config, table)
