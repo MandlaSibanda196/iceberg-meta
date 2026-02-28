@@ -140,9 +140,7 @@ class SummaryPanel(Static):
                 if fh["file_count"] > 0:
                     health_str = f"avg {format_bytes(fh['avg_size'])} ({fh['file_count']} files"
                     if fh["small_file_warning"]:
-                        health_str += (
-                            f", [yellow]{fh['small_file_count']} small[/yellow]"
-                        )
+                        health_str += f", [yellow]{fh['small_file_count']} small[/yellow]"
                     health_str += ")"
                     lines.append(f"  [cyan]File Health:[/cyan] {health_str}")
 
@@ -489,8 +487,7 @@ class MetadataTreePanel(Static):
         )
 
         ml_node = snap_node.add(
-            f"[bold cyan]Manifest List:[/bold cyan] "
-            f"[dim]{truncate_path(snap.manifest_list)}[/dim]"
+            f"[bold cyan]Manifest List:[/bold cyan] [dim]{truncate_path(snap.manifest_list)}[/dim]"
         )
 
         try:
@@ -697,8 +694,7 @@ class HealthPanel(Static):
         if health["column_bounds"]:
             for col in health["column_bounds"]:
                 lines.append(
-                    f"  {col['field_name']:<25} "
-                    f"{col['min_value']}  ..  {col['max_value']}"
+                    f"  {col['field_name']:<25} {col['min_value']}  ..  {col['max_value']}"
                 )
         else:
             lines.append("  [dim]No bounds data available[/dim]")
@@ -843,8 +839,7 @@ class CatalogOverviewPanel(Static):
         ns = data["namespace"]
         count = data["table_count"]
         lines.append(
-            f"[bold]Namespace:[/bold] [cyan]{ns}[/cyan]  "
-            f"({count} table{'s' if count != 1 else ''})"
+            f"[bold]Namespace:[/bold] [cyan]{ns}[/cyan]  ({count} table{'s' if count != 1 else ''})"
         )
 
         total_size = data.get("total_size", 0)
@@ -869,7 +864,6 @@ class CatalogOverviewPanel(Static):
             W_ROWS = 10
             W_SNAPS = 6
             W_VER = 3
-            W_PART = 20
             hdr = (
                 f"  {'Name':<{W_NAME}}  {'Updated':>{W_UPD}}  "
                 f"{'Size':>{W_SIZE}}  {'Files':>{W_FILES}}  "
@@ -883,13 +877,15 @@ class CatalogOverviewPanel(Static):
                 sc = t["snapshot_count"]
                 snap_text = str(sc)
                 snap_color = "yellow" if sc >= _SNAPSHOT_WARN else ""
+                padded = snap_text.rjust(W_SNAPS)
+                snap_col = _colored(padded, snap_color) if snap_color else padded
                 lines.append(
                     f"  [bold]{name:<{W_NAME}}[/bold]  "
                     f"{_colored(upd_text.rjust(W_UPD), upd_color)}  "
                     f"{format_bytes(t['total_size']).rjust(W_SIZE)}  "
                     f"{str(t['total_files']).rjust(W_FILES)}  "
                     f"{self._compact_number(t['total_records']).rjust(W_ROWS)}  "
-                    f"{_colored(snap_text.rjust(W_SNAPS), snap_color) if snap_color else snap_text.rjust(W_SNAPS)}  "
+                    f"{snap_col}  "
                     f"v{t['format_version']}  "
                     f"[dim]{t['partition']}[/dim]"
                 )
@@ -920,17 +916,15 @@ class CatalogOverviewPanel(Static):
         if conflicts:
             lines.append("")
             lines.append(
-                f"[bold]Schema Conflicts[/bold]  "
-                f"[dim](same field name, different type across tables)[/dim]"
+                "[bold]Schema Conflicts[/bold]  "
+                "[dim](same field name, different type across tables)[/dim]"
             )
             for c in conflicts:
                 parts = []
                 for td in c["types"]:
                     tbls = ", ".join(td["tables"])
                     parts.append(f"[cyan]{td['type']}[/cyan] in {tbls}")
-                lines.append(
-                    f"  [yellow]{c['field']}[/yellow]  →  {' | '.join(parts)}"
-                )
+                lines.append(f"  [yellow]{c['field']}[/yellow]  →  {' | '.join(parts)}")
 
         if data["errors"]:
             lines.append("")
@@ -1006,10 +1000,7 @@ class CatalogOverviewPanel(Static):
             W_TBL = 35
             W_UPD = 10
             W_SNAPS = 6
-            hdr = (
-                f"  {'Table':<{W_TBL}}  {'Updated':>{W_UPD}}  "
-                f"{'Snaps':>{W_SNAPS}}  Partition"
-            )
+            hdr = f"  {'Table':<{W_TBL}}  {'Updated':>{W_UPD}}  {'Snaps':>{W_SNAPS}}  Partition"
             lines.append(f"  [dim]{hdr.strip()}[/dim]")
             for t in data["stalest_tables"]:
                 full = self._full_name(t)[:W_TBL]
@@ -1017,10 +1008,12 @@ class CatalogOverviewPanel(Static):
                 sc = t["snapshot_count"]
                 snap_text = str(sc)
                 snap_color = "yellow" if sc >= _SNAPSHOT_WARN else ""
+                padded = snap_text.rjust(W_SNAPS)
+                snap_col = _colored(padded, snap_color) if snap_color else padded
                 lines.append(
                     f"  {full:<{W_TBL}}  "
                     f"{_colored(upd_text.rjust(W_UPD), upd_color)}  "
-                    f"{_colored(snap_text.rjust(W_SNAPS), snap_color) if snap_color else snap_text.rjust(W_SNAPS)}  "
+                    f"{snap_col}  "
                     f"[dim]{t['partition']}[/dim]"
                 )
         else:
@@ -1037,10 +1030,7 @@ class CatalogOverviewPanel(Static):
             W_TBL = 35
             W_SNAPS = 6
             W_UPD = 10
-            hdr = (
-                f"  {'Table':<{W_TBL}}  {'Snaps':>{W_SNAPS}}  "
-                f"{'Updated':>{W_UPD}}"
-            )
+            hdr = f"  {'Table':<{W_TBL}}  {'Snaps':>{W_SNAPS}}  {'Updated':>{W_UPD}}"
             lines.append(f"  [dim]{hdr.strip()}[/dim]")
             for t in data["most_snapshots"]:
                 full = self._full_name(t)[:W_TBL]
@@ -1048,10 +1038,10 @@ class CatalogOverviewPanel(Static):
                 sc = t["snapshot_count"]
                 snap_text = str(sc)
                 snap_color = "yellow" if sc >= _SNAPSHOT_WARN else ""
+                padded = snap_text.rjust(W_SNAPS)
+                snap_col = _colored(padded, snap_color) if snap_color else padded
                 lines.append(
-                    f"  {full:<{W_TBL}}  "
-                    f"{_colored(snap_text.rjust(W_SNAPS), snap_color) if snap_color else snap_text.rjust(W_SNAPS)}  "
-                    f"{_colored(upd_text.rjust(W_UPD), upd_color)}"
+                    f"  {full:<{W_TBL}}  {snap_col}  {_colored(upd_text.rjust(W_UPD), upd_color)}"
                 )
         else:
             lines.append("  [dim]No tables found[/dim]")

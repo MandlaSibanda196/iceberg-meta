@@ -38,9 +38,7 @@ class DiffScreen(ModalScreen[None]):
 
     def compose(self) -> ComposeResult:
         with Vertical(id="diff-container") as container:
-            container.border_title = (
-                f"Diff  [dim]│[/dim]  {self.snap_id_1} → {self.snap_id_2}"
-            )
+            container.border_title = f"Diff  [dim]│[/dim]  {self.snap_id_1} → {self.snap_id_2}"
             yield Static("Loading diff...", id="diff-content")
             yield Button("Close  [dim](esc)[/dim]", id="diff-close", variant="primary")
 
@@ -119,9 +117,7 @@ class SnapshotDetailScreen(ModalScreen[None]):
 
     def compose(self) -> ComposeResult:
         with Vertical(id="diff-container") as container:
-            container.border_title = (
-                f"Snapshot Detail  [dim]│[/dim]  {self.snapshot_id}"
-            )
+            container.border_title = f"Snapshot Detail  [dim]│[/dim]  {self.snapshot_id}"
             yield Static("Loading snapshot detail...", id="diff-content")
             yield Button("Close  [dim](esc)[/dim]", id="diff-close", variant="primary")
 
@@ -139,10 +135,7 @@ class SnapshotDetailScreen(ModalScreen[None]):
 
             lines: list[str] = []
             op = snap.summary.operation.value if snap.summary else "N/A"
-            lines.append(
-                f"[bold]Snapshot {snap.snapshot_id}[/bold]  "
-                f"[yellow]{op}[/yellow]\n"
-            )
+            lines.append(f"[bold]Snapshot {snap.snapshot_id}[/bold]  [yellow]{op}[/yellow]\n")
             lines.append(f"  [cyan]Timestamp:[/cyan]     {format_timestamp_ms(snap.timestamp_ms)}")
             lines.append(f"  [cyan]Parent:[/cyan]        {snap.parent_snapshot_id or 'None'}")
             lines.append(f"  [cyan]Schema ID:[/cyan]     {snap.schema_id or 'N/A'}")
@@ -172,9 +165,7 @@ class SnapshotDetailScreen(ModalScreen[None]):
                     f"{format_bytes(total_size)}, {total_rows:,} rows)"
                 )
                 for f in file_data[:20]:
-                    lines.append(
-                        f"  {f['File Path']}  {f['Record Count']} rows  {f['File Size']}"
-                    )
+                    lines.append(f"  {f['File Path']}  {f['Record Count']} rows  {f['File Size']}")
                 if len(file_data) > 20:
                     lines.append(f"  [dim]... and {len(file_data) - 20} more files[/dim]")
 

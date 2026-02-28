@@ -39,8 +39,7 @@ def test_truncate_path_short():
 
 def test_truncate_path_long():
     path = (
-        "/very/long/path/that/exceeds/the/maximum/length"
-        "/allowed/for/display/purposes/file.parquet"
+        "/very/long/path/that/exceeds/the/maximum/length/allowed/for/display/purposes/file.parquet"
     )
     result = truncate_path(path, max_length=40)
     assert result.startswith("...")
@@ -184,7 +183,9 @@ def test_render_metadata_tree_empty(landing_table):
 def test_render_metadata_tree_specific_snapshot(orders_table):
     snap_id = orders_table.metadata.snapshots[0].snapshot_id
     text = _capture(
-        formatters.render_metadata_tree, orders_table, snapshot_id=snap_id,
+        formatters.render_metadata_tree,
+        orders_table,
+        snapshot_id=snap_id,
     )
     assert "Snapshot" in text
     assert str(snap_id) in text

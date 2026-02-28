@@ -107,9 +107,7 @@ class IcebergMetaApp(App):
         self._show_detail_view("table")
         self._load_all_panels()
 
-    def on_table_browser_namespace_selected(
-        self, event: TableBrowser.NamespaceSelected
-    ) -> None:
+    def on_table_browser_namespace_selected(self, event: TableBrowser.NamespaceSelected) -> None:
         self._current_table = None
         title_bar = self.query_one("#app-title", Static)
         title_bar.update(f"iceberg-meta  [dim]│[/dim]  [cyan]{event.namespace}[/cyan]")
@@ -218,6 +216,4 @@ class IcebergMetaApp(App):
             first_row = dt.get_row(rows[0])
             snap_id = int(first_row[0])
 
-        self.push_screen(
-            SnapshotDetailScreen(self.catalog_config, self._current_table, snap_id)
-        )
+        self.push_screen(SnapshotDetailScreen(self.catalog_config, self._current_table, snap_id))

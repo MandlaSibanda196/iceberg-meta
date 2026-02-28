@@ -10,10 +10,10 @@ from pathlib import Path
 
 import pytest
 import yaml
+from data_factory import seed_catalog
 from pyiceberg.catalog.sql import SqlCatalog
 
 import iceberg_meta.catalog as catalog_module
-from data_factory import seed_catalog
 
 CATALOG_PROPS = {
     "uri": os.environ.get("ICEBERG_CATALOG_URI", "sqlite:///catalog/iceberg_catalog.db"),

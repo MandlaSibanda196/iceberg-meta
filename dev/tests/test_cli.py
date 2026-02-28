@@ -92,7 +92,8 @@ def test_tree(catalog):
 def test_schema_history_evolved(catalog):
     """Evolved table should expose multiple schema versions."""
     result = runner.invoke(
-        app, [*CATALOG_ARGS, "schema", "sales.customers", "--history"],
+        app,
+        [*CATALOG_ARGS, "schema", "sales.customers", "--history"],
     )
     assert result.exit_code == 0, result.stdout
     assert "Schema" in result.stdout
@@ -153,10 +154,16 @@ def test_sessions_snapshots(catalog):
 def test_manifests_specific_snapshot(catalog, sessions_table):
     """Request manifests for a specific snapshot by ID."""
     snap_id = sessions_table.metadata.snapshots[0].snapshot_id
-    result = runner.invoke(app, [
-        *CATALOG_ARGS, "manifests", "analytics.sessions",
-        "--snapshot-id", str(snap_id),
-    ])
+    result = runner.invoke(
+        app,
+        [
+            *CATALOG_ARGS,
+            "manifests",
+            "analytics.sessions",
+            "--snapshot-id",
+            str(snap_id),
+        ],
+    )
     assert result.exit_code == 0, result.stdout
     assert "Manifest" in result.stdout
 
@@ -164,10 +171,16 @@ def test_manifests_specific_snapshot(catalog, sessions_table):
 def test_files_with_snapshot_filter(catalog, orders_table):
     """Request files for a specific snapshot."""
     snap_id = orders_table.metadata.snapshots[0].snapshot_id
-    result = runner.invoke(app, [
-        *CATALOG_ARGS, "files", "sales.orders",
-        "--snapshot-id", str(snap_id),
-    ])
+    result = runner.invoke(
+        app,
+        [
+            *CATALOG_ARGS,
+            "files",
+            "sales.orders",
+            "--snapshot-id",
+            str(snap_id),
+        ],
+    )
     assert result.exit_code == 0, result.stdout
     assert "Total files" in result.stdout
 

@@ -4,14 +4,12 @@ from __future__ import annotations
 
 import time
 from pathlib import Path
-from typing import Optional
 
 import typer
 from dotenv import load_dotenv
 from rich.console import Console
 
 from iceberg_meta import __version__, formatters
-from iceberg_meta.utils import format_timestamp_ms
 from iceberg_meta.catalog import (
     CONFIG_FILE,
     CatalogConfig,
@@ -20,9 +18,9 @@ from iceberg_meta.catalog import (
     merge_config_file,
     resolve_catalog_config,
     test_connection,
-    write_config_file,
 )
 from iceberg_meta.output import OutputFormat
+from iceberg_meta.utils import format_timestamp_ms
 
 
 def _version_callback(value: bool) -> None:
@@ -74,22 +72,21 @@ def _friendly_error(e: Exception, config: CatalogConfig, table: str | None = Non
             "  Wait a moment and try again, or check for other running processes."
         )
     elif "snapshot" in msg and "not found" in msg:
-        err_console.print(f"[red bold]Snapshot not found:[/red bold] {e}\n"
+        err_console.print(
+            f"[red bold]Snapshot not found:[/red bold] {e}\n"
             "  Run [bold]iceberg-meta snapshots <table>[/bold] to see valid snapshot IDs."
         )
-    elif ("nosuch" in msg or "not found" in msg
-            or ("table" in msg and "does not exist" in msg)):
+    elif "nosuch" in msg or "not found" in msg or ("table" in msg and "does not exist" in msg):
         err_console.print(
             f"[red bold]Table not found:[/red bold] '{table or 'unknown'}'\n"
             "  Run [bold]iceberg-meta list-tables[/bold] to see available tables."
         )
-    elif "nosuchnamespace" in etype or "namespace" in msg and "not found" in msg:
+    elif "nosuchnamespace" in etype or ("namespace" in msg and "not found" in msg):
         err_console.print(
-            f"[red bold]Namespace not found.[/red bold]\n"
+            "[red bold]Namespace not found.[/red bold]\n"
             "  Run [bold]iceberg-meta list-tables[/bold] to see available namespaces."
         )
-    elif ("unauthorized" in msg or "401" in msg
-            or "unauthorizederror" in etype):
+    elif "unauthorized" in msg or "401" in msg or "unauthorizederror" in etype:
         err_console.print(
             "[red bold]Authentication failed:[/red bold] Credentials are invalid or expired.\n"
             "  Check your access key, secret key, and any session tokens."
@@ -109,8 +106,9 @@ def _friendly_error(e: Exception, config: CatalogConfig, table: str | None = Non
             f"[red bold]Missing dependency:[/red bold] {e}\n"
             "  Install the required optional dependency and try again."
         )
-    elif ("invalid" in msg and ("table" in msg or "identifier" in msg or "does not contain" in msg)
-            or "empty namespace" in msg):
+    elif (
+        "invalid" in msg and ("table" in msg or "identifier" in msg or "does not contain" in msg)
+    ) or "empty namespace" in msg:
         err_console.print(
             f"[red bold]Invalid table name:[/red bold] '{table or 'unknown'}'\n"
             "  Use the format [bold]namespace.table_name[/bold]"
@@ -122,8 +120,7 @@ def _friendly_error(e: Exception, config: CatalogConfig, table: str | None = Non
         )
     elif "yaml" in etype:
         err_console.print(
-            "[red bold]Config error:[/red bold] Invalid YAML in your config file.\n"
-            f"  {e}"
+            f"[red bold]Config error:[/red bold] Invalid YAML in your config file.\n  {e}"
         )
     elif not config.properties:
         err_console.print(
@@ -151,23 +148,29 @@ def _run(fn, config: CatalogConfig, table: str | None = None):
 @app.callback()
 def main(
     ctx: typer.Context,
-    catalog_name: Optional[str] = typer.Option(
+    catalog_name: str | None = typer.Option(
         None, "--catalog", "-c", help="Catalog name (from config file)"
     ),
-    catalog_uri: Optional[str] = typer.Option(None, "--uri", help="Catalog URI"),
-    warehouse: Optional[str] = typer.Option(
-        None, "--warehouse", "-w", help="Warehouse path"
-    ),
-    output: OutputFormat = typer.Option(
+    catalog_uri: str | None = typer.Option(None, "--uri", help="Catalog URI"),
+    warehouse: str | None = typer.Option(None, "--warehouse", "-w", help="Warehouse path"),
+    output: OutputFormat = typer.Option(  # noqa: B008
         OutputFormat.TABLE, "--output", "-o", help="Output format (table, json, csv)"
     ),
-    env_file: Optional[Path] = typer.Option(
-        None, "--env-file", "-e", help="Path to .env file to load",
-        exists=True, dir_okay=False,
+    env_file: Path | None = typer.Option(  # noqa: B008
+        None,
+        "--env-file",
+        "-e",
+        help="Path to .env file to load",
+        exists=True,
+        dir_okay=False,
     ),
-    version: Optional[bool] = typer.Option(
-        None, "--version", "-V", help="Show version and exit",
-        callback=_version_callback, is_eager=True,
+    version: bool | None = typer.Option(
+        None,
+        "--version",
+        "-V",
+        help="Show version and exit",
+        callback=_version_callback,
+        is_eager=True,
     ),
 ):
     """Explore Apache Iceberg table metadata."""
@@ -212,22 +215,19 @@ def main(
                 "  or run [bold]iceberg-meta init[/bold] to add a new one."
             )
         elif "invalid yaml" in exc_msg.lower():
-            err_console.print(
-                "\n  Fix the syntax error in your config file and try again."
-            )
+            err_console.print("\n  Fix the syntax error in your config file and try again.")
 
         raise SystemExit(1) from None
 
-    if not ctx.obj.get("catalog_config"):
-        if not CONFIG_FILE.exists() and not catalog_uri:
-            err_console.print(
-                "[yellow bold]No catalog configured.[/yellow bold]\n\n"
-                "  Get started in 30 seconds:\n\n"
-                "    [bold]iceberg-meta init[/bold]\n\n"
-                "  Or pass a catalog URI directly:\n\n"
-                "    [bold]iceberg-meta --uri sqlite:///catalog.db list-tables[/bold]\n"
-            )
-            raise SystemExit(1)
+    if not ctx.obj.get("catalog_config") and not CONFIG_FILE.exists() and not catalog_uri:
+        err_console.print(
+            "[yellow bold]No catalog configured.[/yellow bold]\n\n"
+            "  Get started in 30 seconds:\n\n"
+            "    [bold]iceberg-meta init[/bold]\n\n"
+            "  Or pass a catalog URI directly:\n\n"
+            "    [bold]iceberg-meta --uri sqlite:///catalog.db list-tables[/bold]\n"
+        )
+        raise SystemExit(1)
 
     ctx.obj["output_format"] = output
 
@@ -331,9 +331,7 @@ def init(ctx: typer.Context) -> None:
 
     # -- build properties from preset, let user override --
     props = dict(_PRESETS[preset_key])
-    console.print(
-        f"\n[dim]The config uses ${{VAR}} placeholders resolved from the environment.[/dim]"
-    )
+    console.print("\n[dim]The config uses ${VAR} placeholders resolved from the environment.[/dim]")
     console.print("[dim]Press Enter to keep each default, or type a value to override.[/dim]\n")
 
     final_props: dict[str, str] = {}
@@ -436,6 +434,7 @@ def doctor(ctx: typer.Context) -> None:
         _ok(f"Found {CONFIG_FILE}")
         try:
             from iceberg_meta.catalog import load_config_file
+
             file_config = load_config_file()
             catalogs = file_config.get("catalogs", {})
             if catalogs:
@@ -447,10 +446,7 @@ def doctor(ctx: typer.Context) -> None:
         except Exception as exc:
             _fail(f"Could not parse config: {exc}")
     else:
-        _warn(
-            f"No config file at {CONFIG_FILE} — "
-            "run [bold]iceberg-meta init[/bold] to create one"
-        )
+        _warn(f"No config file at {CONFIG_FILE} — run [bold]iceberg-meta init[/bold] to create one")
     console.print()
 
     # -- environment variables --
@@ -475,7 +471,8 @@ def doctor(ctx: typer.Context) -> None:
                 for var in sorted(referenced_vars):
                     env_val = os.environ.get(var)
                     if env_val:
-                        display = env_val[:4] + "***" if "secret" in var.lower() or "password" in var.lower() else env_val
+                        is_sensitive = "secret" in var.lower() or "password" in var.lower()
+                        display = env_val[:4] + "***" if is_sensitive else env_val
                         _ok(f"${{{var}}} = {display}")
                     else:
                         _fail(f"${{{var}}} is not set")
@@ -561,9 +558,7 @@ def table_info(
 def snapshots(
     ctx: typer.Context,
     table: str = typer.Argument(help="Table identifier (namespace.table_name)"),
-    watch: Optional[int] = typer.Option(
-        None, "--watch", "-W", help="Refresh every N seconds"
-    ),
+    watch: int | None = typer.Option(None, "--watch", "-W", help="Refresh every N seconds"),
 ):
     """List all snapshots with timestamps, operations, and summary stats."""
     config: CatalogConfig = ctx.obj["catalog_config"]
@@ -585,7 +580,6 @@ def _watch_snapshots(
 ) -> None:
     """Poll the catalog and refresh snapshots every *interval* seconds."""
     from rich.live import Live
-
     from rich.table import Table as RichTable
 
     seen_ids: set[int] = set()
@@ -608,7 +602,8 @@ def _watch_snapshots(
                     rt.add_column("New?", justify="center")
 
                     for snap in tbl.metadata.snapshots:
-                        marker = "[bold green]NEW[/bold green]" if snap.snapshot_id in new_ids else ""
+                        new = snap.snapshot_id in new_ids
+                        marker = "[bold green]NEW[/bold green]" if new else ""
                         rt.add_row(
                             str(snap.snapshot_id),
                             format_timestamp_ms(snap.timestamp_ms),
@@ -655,7 +650,7 @@ def schema(
 def manifests(
     ctx: typer.Context,
     table: str = typer.Argument(help="Table identifier (namespace.table_name)"),
-    snapshot_id: Optional[int] = typer.Option(
+    snapshot_id: int | None = typer.Option(
         None, "--snapshot-id", "-s", help="Specific snapshot ID"
     ),
 ):
@@ -677,7 +672,7 @@ def manifests(
 def files(
     ctx: typer.Context,
     table: str = typer.Argument(help="Table identifier (namespace.table_name)"),
-    snapshot_id: Optional[int] = typer.Option(
+    snapshot_id: int | None = typer.Option(
         None, "--snapshot-id", "-s", help="Specific snapshot ID"
     ),
 ):
@@ -828,7 +823,7 @@ def tui(ctx: typer.Context) -> None:
 def tree(
     ctx: typer.Context,
     table: str = typer.Argument(help="Table identifier (namespace.table_name)"),
-    snapshot_id: Optional[int] = typer.Option(
+    snapshot_id: int | None = typer.Option(
         None, "--snapshot-id", "-s", help="Specific snapshot (default: current)"
     ),
     max_files: int = typer.Option(
@@ -847,7 +842,10 @@ def tree(
     def _do():
         tbl = get_table(config, table)
         formatters.render_metadata_tree(
-            console, tbl, snapshot_id=snapshot_id, max_files=max_files,
+            console,
+            tbl,
+            snapshot_id=snapshot_id,
+            max_files=max_files,
             all_snapshots=all_snapshots,
         )
 

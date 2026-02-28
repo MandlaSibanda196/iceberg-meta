@@ -13,7 +13,6 @@ from pyiceberg.catalog import load_catalog
 from pyiceberg.io import load_file_io
 from pyiceberg.table import Table
 
-
 CONFIG_FILE = Path.home() / ".iceberg-meta.yaml"
 
 S3_PROPERTY_KEYS = [
@@ -50,13 +49,10 @@ def load_config_file() -> dict[str, Any]:
         with open(CONFIG_FILE) as f:
             data = yaml.safe_load(f)
     except yaml.YAMLError as exc:
-        raise ValueError(
-            f"Config file {CONFIG_FILE} contains invalid YAML:\n  {exc}"
-        ) from exc
+        raise ValueError(f"Config file {CONFIG_FILE} contains invalid YAML:\n  {exc}") from exc
     if not isinstance(data, dict):
         raise ValueError(
-            f"Config file {CONFIG_FILE} must be a YAML mapping, "
-            f"got {type(data).__name__}"
+            f"Config file {CONFIG_FILE} must be a YAML mapping, got {type(data).__name__}"
         )
     return data
 
@@ -68,9 +64,7 @@ def _resolve_placeholders(value: str) -> str:
         var = match.group(1)
         env_val = os.environ.get(var)
         if env_val is None:
-            raise ValueError(
-                f"Environment variable ${{{var}}} referenced in config but not set"
-            )
+            raise ValueError(f"Environment variable ${{{var}}} referenced in config but not set")
         return env_val
 
     return re.sub(r"\$\{(\w+)\}", _replacer, value)
@@ -169,17 +163,19 @@ def write_config_file(config: dict[str, Any]) -> Path:
             yaml.dump(config, f, default_flow_style=False, sort_keys=False)
     except PermissionError:
         raise ValueError(
-            f"Permission denied writing to {CONFIG_FILE}. "
-            "Check file/directory permissions."
+            f"Permission denied writing to {CONFIG_FILE}. Check file/directory permissions."
         ) from None
     except OSError as exc:
-        raise ValueError(
-            f"Could not write config to {CONFIG_FILE}: {exc}"
-        ) from None
+        raise ValueError(f"Could not write config to {CONFIG_FILE}: {exc}") from None
     return CONFIG_FILE
 
 
-def merge_config_file(catalog_name: str, props: dict[str, str], *, make_default: bool = False) -> Path:
+def merge_config_file(
+    catalog_name: str,
+    props: dict[str, str],
+    *,
+    make_default: bool = False,
+) -> Path:
     """Add or update a single catalog in ~/.iceberg-meta.yaml without touching others."""
     existing = load_config_file()
     catalogs = existing.get("catalogs", {})

@@ -19,6 +19,8 @@ if TYPE_CHECKING:
     from pyiceberg.schema import Schema
     from pyiceberg.table import Table as IcebergTable
 
+    from iceberg_meta.catalog import CatalogConfig
+
 log = logging.getLogger(__name__)
 
 
@@ -97,9 +99,7 @@ def render_table_info(
         if spec.fields:
             console.print("\n[bold]Partition Spec:[/bold]")
             for field in spec.fields:
-                console.print(
-                    f"  {field.name} = {field.transform}(source_id={field.source_id})"
-                )
+                console.print(f"  {field.name} = {field.transform}(source_id={field.source_id})")
         else:
             console.print("\n[bold]Partition Spec:[/bold] unpartitioned")
 
@@ -152,13 +152,15 @@ def collect_snapshots(tbl: IcebergTable) -> list[dict[str, Any]]:
         if snap.summary:
             for k, v in snap.summary.additional_properties.items():
                 summary_parts.append(f"{k}={v}")
-        rows.append({
-            "Snapshot ID": str(snap.snapshot_id),
-            "Timestamp": format_timestamp_ms(snap.timestamp_ms),
-            "Parent ID": str(snap.parent_snapshot_id or "-"),
-            "Operation": snap.summary.operation.value if snap.summary else "-",
-            "Summary": ", ".join(summary_parts) if summary_parts else "-",
-        })
+        rows.append(
+            {
+                "Snapshot ID": str(snap.snapshot_id),
+                "Timestamp": format_timestamp_ms(snap.timestamp_ms),
+                "Parent ID": str(snap.parent_snapshot_id or "-"),
+                "Operation": snap.summary.operation.value if snap.summary else "-",
+                "Summary": ", ".join(summary_parts) if summary_parts else "-",
+            }
+        )
     return rows
 
 
@@ -198,15 +200,17 @@ def collect_manifests(tbl: IcebergTable, snapshot_id: int | None = None) -> list
         return rows
 
     for m in manifest_list:
-        rows.append({
-            "Path": truncate_path(m.manifest_path),
-            "Length": format_bytes(m.manifest_length),
-            "Spec ID": str(m.partition_spec_id),
-            "Content": str(m.content.value) if m.content else "-",
-            "Added": str(m.added_files_count or 0),
-            "Existing": str(m.existing_files_count or 0),
-            "Deleted": str(m.deleted_files_count or 0),
-        })
+        rows.append(
+            {
+                "Path": truncate_path(m.manifest_path),
+                "Length": format_bytes(m.manifest_length),
+                "Spec ID": str(m.partition_spec_id),
+                "Content": str(m.content.value) if m.content else "-",
+                "Added": str(m.added_files_count or 0),
+                "Existing": str(m.existing_files_count or 0),
+                "Deleted": str(m.deleted_files_count or 0),
+            }
+        )
     return rows
 
 
@@ -242,9 +246,7 @@ def render_manifests(
 
     if fmt == OutputFormat.TABLE:
         console.print(f"[bold]Manifests for snapshot {snap.snapshot_id}[/bold]")
-        console.print(
-            f"Manifest list: [cyan]{truncate_path(snap.manifest_list)}[/cyan]\n"
-        )
+        console.print(f"Manifest list: [cyan]{truncate_path(snap.manifest_list)}[/cyan]\n")
 
     emit(console, data, columns, fmt, title="Manifest Files", column_styles=styles)
 
@@ -263,14 +265,16 @@ def collect_files(tbl: IcebergTable, snapshot_id: int | None = None) -> list[dic
 
     rows: list[dict[str, Any]] = []
     for row in pa_table.to_pylist():
-        rows.append({
-            "File Path": truncate_path(row.get("file_path", "")),
-            "Format": str(row.get("file_format", "")),
-            "Record Count": f"{row.get('record_count', 0):,}",
-            "File Size": format_bytes(row.get("file_size_in_bytes", 0)),
-            "file_size_raw": row.get("file_size_in_bytes", 0),
-            "record_count_raw": row.get("record_count", 0),
-        })
+        rows.append(
+            {
+                "File Path": truncate_path(row.get("file_path", "")),
+                "Format": str(row.get("file_format", "")),
+                "Record Count": f"{row.get('record_count', 0):,}",
+                "File Size": format_bytes(row.get("file_size_in_bytes", 0)),
+                "file_size_raw": row.get("file_size_in_bytes", 0),
+                "record_count_raw": row.get("record_count", 0),
+            }
+        )
     return rows
 
 
@@ -302,12 +306,14 @@ def collect_partitions(tbl: IcebergTable) -> list[dict[str, Any]]:
     pa_table = tbl.inspect.partitions()
     rows: list[dict[str, Any]] = []
     for row in pa_table.to_pylist():
-        rows.append({
-            "Partition": str(row.get("partition", "")),
-            "Record Count": f"{row.get('record_count', 0):,}",
-            "File Count": str(row.get("file_count", 0)),
-            "Total Size": format_bytes(row.get("total_data_file_size_in_bytes", 0)),
-        })
+        rows.append(
+            {
+                "Partition": str(row.get("partition", "")),
+                "Record Count": f"{row.get('record_count', 0):,}",
+                "File Count": str(row.get("file_count", 0)),
+                "Total Size": format_bytes(row.get("total_data_file_size_in_bytes", 0)),
+            }
+        )
     return rows
 
 
@@ -393,9 +399,14 @@ def collect_table_health(tbl: IcebergTable) -> dict[str, Any]:
         }
     else:
         result["file_health"] = {
-            "file_count": 0, "min_size": 0, "max_size": 0,
-            "avg_size": 0, "median_size": 0, "total_size": 0,
-            "small_file_count": 0, "small_file_warning": False,
+            "file_count": 0,
+            "min_size": 0,
+            "max_size": 0,
+            "avg_size": 0,
+            "median_size": 0,
+            "total_size": 0,
+            "small_file_count": 0,
+            "small_file_warning": False,
         }
 
     # --- delete file accumulation -------------------------------------
@@ -431,11 +442,13 @@ def collect_table_health(tbl: IcebergTable) -> dict[str, Any]:
             for pf in spec.fields:
                 source_field = field_by_id_spec.get(pf.source_id)
                 source_name = source_field.name if source_field else f"id={pf.source_id}"
-                partition_spec.append({
-                    "name": pf.name,
-                    "transform": str(pf.transform),
-                    "source_field": source_name,
-                })
+                partition_spec.append(
+                    {
+                        "name": pf.name,
+                        "transform": str(pf.transform),
+                        "source_field": source_name,
+                    }
+                )
     except Exception:
         log.debug("Failed to read partition spec for health", exc_info=True)
     result["partition_spec"] = partition_spec
@@ -452,12 +465,14 @@ def collect_table_health(tbl: IcebergTable) -> dict[str, Any]:
     for row in part_rows:
         fc = row.get("file_count", 0)
         file_counts.append(fc)
-        partition_data.append({
-            "partition": str(row.get("partition", "")),
-            "record_count": row.get("record_count", 0),
-            "file_count": fc,
-            "total_size": row.get("total_data_file_size_in_bytes", 0),
-        })
+        partition_data.append(
+            {
+                "partition": str(row.get("partition", "")),
+                "record_count": row.get("record_count", 0),
+                "file_count": fc,
+                "total_size": row.get("total_data_file_size_in_bytes", 0),
+            }
+        )
 
     avg_fc = statistics.mean(file_counts) if file_counts else 0
     skewed: list[str] = []
@@ -510,12 +525,14 @@ def collect_table_health(tbl: IcebergTable) -> dict[str, Any]:
         total = value_counts[fid]
         nulls = null_counts.get(fid, 0)
         pct = (nulls / total * 100) if total > 0 else 0.0
-        column_nulls.append({
-            "field_name": field.name,
-            "null_count": nulls,
-            "total_count": total,
-            "null_pct": pct,
-        })
+        column_nulls.append(
+            {
+                "field_name": field.name,
+                "null_count": nulls,
+                "total_count": total,
+                "null_pct": pct,
+            }
+        )
     result["column_nulls"] = column_nulls
 
     # column sizes
@@ -523,11 +540,13 @@ def collect_table_health(tbl: IcebergTable) -> dict[str, Any]:
     column_sizes_list: list[dict[str, Any]] = []
     for fid, sz in sorted(col_sizes.items(), key=lambda x: x[1], reverse=True):
         if fid in field_by_id:
-            column_sizes_list.append({
-                "field_name": field_by_id[fid].name,
-                "total_bytes": sz,
-                "pct_of_total": sz / total_col_size * 100,
-            })
+            column_sizes_list.append(
+                {
+                    "field_name": field_by_id[fid].name,
+                    "total_bytes": sz,
+                    "pct_of_total": sz / total_col_size * 100,
+                }
+            )
     result["column_sizes"] = column_sizes_list
 
     # column bounds
@@ -550,11 +569,17 @@ def collect_table_health(tbl: IcebergTable) -> dict[str, Any]:
                 min_val = min(decoded_lowers) if decoded_lowers else None
                 max_val = max(decoded_uppers) if decoded_uppers else None
                 if min_val is not None or max_val is not None:
-                    column_bounds.append({
-                        "field_name": field.name,
-                        "min_value": _format_bound_value(min_val) if min_val is not None else "?",
-                        "max_value": _format_bound_value(max_val) if max_val is not None else "?",
-                    })
+                    column_bounds.append(
+                        {
+                            "field_name": field.name,
+                            "min_value": _format_bound_value(min_val)
+                            if min_val is not None
+                            else "?",
+                            "max_value": _format_bound_value(max_val)
+                            if max_val is not None
+                            else "?",
+                        }
+                    )
             except Exception:
                 log.debug("Failed to decode bounds for field %s", field.name, exc_info=True)
     except ImportError:
@@ -574,8 +599,10 @@ def collect_table_health(tbl: IcebergTable) -> dict[str, Any]:
                 if source_id in field_by_id:
                     field = field_by_id[source_id]
                     from pyiceberg.types import PrimitiveType as PT
+
                     if isinstance(field.field_type, PT):
                         from pyiceberg.conversions import from_bytes as fb
+
                         file_ranges: list[tuple[Any, Any]] = []
                         for row in file_rows:
                             lb = _to_dict(row.get("lower_bounds")).get(source_id)
@@ -614,61 +641,88 @@ def render_table_health(
     if fmt != OutputFormat.TABLE:
         flat: list[dict[str, Any]] = []
         fh = health["file_health"]
-        flat.append({
-            "Section": "File Health",
-            "Metric": "file_count", "Value": str(fh["file_count"]),
-        })
-        flat.append({
-            "Section": "File Health",
-            "Metric": "total_size", "Value": format_bytes(fh["total_size"]),
-        })
-        flat.append({
-            "Section": "File Health",
-            "Metric": "avg_size", "Value": format_bytes(fh["avg_size"]),
-        })
-        flat.append({
-            "Section": "File Health",
-            "Metric": "small_files", "Value": str(fh["small_file_count"]),
-        })
+        flat.append(
+            {
+                "Section": "File Health",
+                "Metric": "file_count",
+                "Value": str(fh["file_count"]),
+            }
+        )
+        flat.append(
+            {
+                "Section": "File Health",
+                "Metric": "total_size",
+                "Value": format_bytes(fh["total_size"]),
+            }
+        )
+        flat.append(
+            {
+                "Section": "File Health",
+                "Metric": "avg_size",
+                "Value": format_bytes(fh["avg_size"]),
+            }
+        )
+        flat.append(
+            {
+                "Section": "File Health",
+                "Metric": "small_files",
+                "Value": str(fh["small_file_count"]),
+            }
+        )
         df = health["delete_files"]
-        flat.append({
-            "Section": "Delete Files",
-            "Metric": "data_manifests", "Value": str(df["data_manifest_count"]),
-        })
-        flat.append({
-            "Section": "Delete Files",
-            "Metric": "delete_manifests",
-            "Value": str(df["delete_manifest_count"]),
-        })
-        flat.append({
-            "Section": "Delete Files",
-            "Metric": "compaction_recommended",
-            "Value": str(df["compaction_recommended"]),
-        })
+        flat.append(
+            {
+                "Section": "Delete Files",
+                "Metric": "data_manifests",
+                "Value": str(df["data_manifest_count"]),
+            }
+        )
+        flat.append(
+            {
+                "Section": "Delete Files",
+                "Metric": "delete_manifests",
+                "Value": str(df["delete_manifest_count"]),
+            }
+        )
+        flat.append(
+            {
+                "Section": "Delete Files",
+                "Metric": "compaction_recommended",
+                "Value": str(df["compaction_recommended"]),
+            }
+        )
         for p in health["partitions"]["rows"]:
-            flat.append({
-                "Section": "Partitions",
-                "Metric": p["partition"],
-                "Value": f"{p['file_count']} files, {p['record_count']:,} rows",
-            })
+            flat.append(
+                {
+                    "Section": "Partitions",
+                    "Metric": p["partition"],
+                    "Value": f"{p['file_count']} files, {p['record_count']:,} rows",
+                }
+            )
         for col in health["column_nulls"]:
-            flat.append({
-                "Section": "Column Nulls",
-                "Metric": col["field_name"],
-                "Value": f"{col['null_pct']:.1f}%",
-            })
+            flat.append(
+                {
+                    "Section": "Column Nulls",
+                    "Metric": col["field_name"],
+                    "Value": f"{col['null_pct']:.1f}%",
+                }
+            )
         for col in health["column_sizes"]:
-            flat.append({
-                "Section": "Column Sizes",
-                "Metric": col["field_name"],
-                "Value": f"{format_bytes(col['total_bytes'])} ({col['pct_of_total']:.1f}%)",
-            })
+            flat.append(
+                {
+                    "Section": "Column Sizes",
+                    "Metric": col["field_name"],
+                    "Value": f"{format_bytes(col['total_bytes'])} ({col['pct_of_total']:.1f}%)",
+                }
+            )
         for col in health["column_bounds"]:
-            flat.append({
-                "Section": "Column Bounds",
-                "Metric": col["field_name"],
-                "Value": f"{col['min_value']} .. {col['max_value']}",
-            })
+            flat.append(
+                {
+                    "Section": "Column Bounds",
+                    "Metric": col["field_name"],
+                    "Value": f"{col['min_value']} .. {col['max_value']}",
+                }
+            )
         emit(console, flat, ["Section", "Metric", "Value"], fmt, title="Table Health")
         return
 
@@ -789,10 +843,7 @@ def render_table_health(
     console.print("[bold]Column Bounds[/bold]")
     if health["column_bounds"]:
         for col in health["column_bounds"]:
-            console.print(
-                f"  {col['field_name']:<25} "
-                f"{col['min_value']}  ..  {col['max_value']}"
-            )
+            console.print(f"  {col['field_name']:<25} {col['min_value']}  ..  {col['max_value']}")
     else:
         console.print("  [dim]No bounds data available[/dim]")
     console.print()
@@ -870,16 +921,17 @@ def collect_summary(tbl: IcebergTable) -> dict[str, Any]:
     recent_ops: list[dict[str, str]] = []
     for snap in reversed(md.snapshots[-5:]):
         op = snap.summary.operation.value if snap.summary else "unknown"
-        added = snap.summary.additional_properties.get("added-records", "0") if snap.summary else "0"
-        deleted = (
-            snap.summary.additional_properties.get("deleted-records", "0") if snap.summary else "0"
+        props = snap.summary.additional_properties if snap.summary else {}
+        added = props.get("added-records", "0")
+        deleted = props.get("deleted-records", "0")
+        recent_ops.append(
+            {
+                "operation": op,
+                "added_records": added,
+                "deleted_records": deleted,
+                "timestamp": format_timestamp_ms(snap.timestamp_ms),
+            }
         )
-        recent_ops.append({
-            "operation": op,
-            "added_records": added,
-            "deleted_records": deleted,
-            "timestamp": format_timestamp_ms(snap.timestamp_ms),
-        })
 
     return {
         "table_name": tbl.name(),
@@ -908,8 +960,7 @@ def render_summary(
 
     console.print()
     console.print(
-        f"[bold]Table:[/bold] {data['table_name']} "
-        f"[dim](v{data['format_version']})[/dim]"
+        f"[bold]Table:[/bold] {data['table_name']} [dim](v{data['format_version']})[/dim]"
     )
     console.print(f"[bold]Location:[/bold] {data['location']}")
     console.print()
@@ -921,16 +972,22 @@ def render_summary(
     grid.add_column("Value2")
 
     grid.add_row(
-        "Snapshots", str(data["snapshot_count"]),
-        "Schema Fields", str(data["schema_field_count"]),
+        "Snapshots",
+        str(data["snapshot_count"]),
+        "Schema Fields",
+        str(data["schema_field_count"]),
     )
     grid.add_row(
-        "Data Files", str(data["data_file_count"]),
-        "Partitions", str(data["partition_count"]),
+        "Data Files",
+        str(data["data_file_count"]),
+        "Partitions",
+        str(data["partition_count"]),
     )
     grid.add_row(
-        "Total Size", data["total_size"],
-        "Total Rows", data["total_rows"],
+        "Total Size",
+        data["total_size"],
+        "Total Rows",
+        data["total_rows"],
     )
     grid.add_row("Last Updated", data["last_updated"], "", "")
 
@@ -960,9 +1017,7 @@ def render_summary(
 # ─── diff ─────────────────────────────────────────────────────
 
 
-def collect_diff(
-    tbl: IcebergTable, snap_id_1: int, snap_id_2: int
-) -> dict[str, Any]:
+def collect_diff(tbl: IcebergTable, snap_id_1: int, snap_id_2: int) -> dict[str, Any]:
     """Compute the difference between two snapshots."""
     for sid in (snap_id_1, snap_id_2):
         if _find_snapshot(tbl, sid) is None:
@@ -1065,16 +1120,14 @@ def render_diff(
         console.print("\n  [bold green]Added:[/bold green]")
         for f in data["added_files"]:
             console.print(
-                f"    {f['file_path']}  "
-                f"{f['record_count']:,} rows  {format_bytes(f['file_size'])}"
+                f"    {f['file_path']}  {f['record_count']:,} rows  {format_bytes(f['file_size'])}"
             )
 
     if data["deleted_files"]:
         console.print("\n  [bold red]Deleted:[/bold red]")
         for f in data["deleted_files"]:
             console.print(
-                f"    {f['file_path']}  "
-                f"{f['record_count']:,} rows  {format_bytes(f['file_size'])}"
+                f"    {f['file_path']}  {f['record_count']:,} rows  {format_bytes(f['file_size'])}"
             )
     console.print()
 
@@ -1184,7 +1237,11 @@ def _add_snapshot_branch(root: Tree, tbl: IcebergTable, snap, max_files: int) ->
         try:
             entries = manifest.fetch_manifest_entry(tbl.io)
         except Exception:
-            log.debug("Failed to fetch entries for manifest %s", manifest.manifest_path, exc_info=True)
+            log.debug(
+                "Failed to fetch entries for manifest %s",
+                manifest.manifest_path,
+                exc_info=True,
+            )
             entries = []
         all_entries_by_manifest.append(entries)
         for entry in entries:
@@ -1193,7 +1250,7 @@ def _add_snapshot_branch(root: Tree, tbl: IcebergTable, snap, max_files: int) ->
 
     avg_size = statistics.mean(all_sizes) if all_sizes else 0
 
-    for manifest, entries in zip(manifest_files, all_entries_by_manifest):
+    for manifest, entries in zip(manifest_files, all_entries_by_manifest, strict=False):
         added = manifest.added_files_count or 0
         existing = manifest.existing_files_count or 0
         total_files = added + existing
@@ -1206,8 +1263,7 @@ def _add_snapshot_branch(root: Tree, tbl: IcebergTable, snap, max_files: int) ->
             f"({total_files} files, {format_bytes(manifest.manifest_length)}{pct})"
         )
 
-        shown = 0
-        for entry in entries:
+        for shown, entry in enumerate(entries):
             if shown >= max_files:
                 remaining = len(entries) - shown
                 if remaining > 0:
@@ -1219,7 +1275,6 @@ def _add_snapshot_branch(root: Tree, tbl: IcebergTable, snap, max_files: int) ->
                 f"[{color}]{truncate_path(df.file_path)}[/{color}] "
                 f"({df.record_count:,} rows, {format_bytes(df.file_size_in_bytes)})"
             )
-            shown += 1
 
 
 # ─── catalog overview (metadata-only, no inspect calls) ──────
@@ -1313,7 +1368,7 @@ def _find_schema_conflicts(tables: list[dict[str, Any]]) -> list[dict[str, Any]]
 
 
 def collect_namespace_overview(
-    config: "CatalogConfig", namespace: str, table_ids: list[str]
+    config: CatalogConfig, namespace: str, table_ids: list[str]
 ) -> dict[str, Any]:
     """Collect metadata-only overview for all tables in a namespace."""
     from iceberg_meta.catalog import get_table
@@ -1348,7 +1403,7 @@ def collect_namespace_overview(
 
 
 def collect_warehouse_overview(
-    config: "CatalogConfig", tables_by_ns: dict[str, list[str]]
+    config: CatalogConfig, tables_by_ns: dict[str, list[str]]
 ) -> dict[str, Any]:
     """Collect metadata-only overview across all namespaces."""
     from iceberg_meta.catalog import get_table
@@ -1373,13 +1428,15 @@ def collect_warehouse_overview(
         ns_size = sum(t["total_size"] for t in ns_tables)
         ns_files = sum(t["total_files"] for t in ns_tables)
         ns_records = sum(t["total_records"] for t in ns_tables)
-        ns_summaries.append({
-            "namespace": ns,
-            "table_count": len(ns_tables),
-            "total_size": ns_size,
-            "total_files": ns_files,
-            "total_records": ns_records,
-        })
+        ns_summaries.append(
+            {
+                "namespace": ns,
+                "table_count": len(ns_tables),
+                "total_size": ns_size,
+                "total_files": ns_files,
+                "total_records": ns_records,
+            }
+        )
 
     all_tables.sort(key=lambda t: t["last_updated_ms"] or 0)
 
