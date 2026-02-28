@@ -718,31 +718,59 @@ def quickstart(
     compose_file = qs_dir / "docker-compose.yml"
     compose_file.write_text(_DOCKER_COMPOSE)
 
-    # -- start containers --
-    console.print("  [bold]Starting MinIO...[/bold]")
+    # -- start containers (stream output so users see pull progress) --
+    console.print("  [bold]Starting MinIO...[/bold]\n")
     try:
-        result = subprocess.run(
-            ["docker", "compose", "up", "-d", "--wait"],
+        proc = subprocess.Popen(
+            ["docker", "compose", "up", "-d"],
             cwd=str(qs_dir),
-            capture_output=True,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.STDOUT,
             text=True,
-            timeout=120,
         )
-        if result.returncode != 0:
-            stderr = result.stderr.strip()
+        assert proc.stdout is not None
+        for line in proc.stdout:
+            console.print(f"    [dim]{line.rstrip()}[/dim]")
+        rc = proc.wait(timeout=120)
+        if rc != 0:
             err_console.print(
-                f"[red bold]Failed to start containers:[/red bold]\n  {stderr}\n\n"
+                "[red bold]Failed to start containers.[/red bold]\n\n"
                 "  Try running manually:\n"
                 f"  [bold]cd {qs_dir} && docker compose up -d[/bold]"
             )
             raise SystemExit(1)
     except subprocess.TimeoutExpired:
+        proc.kill()
         err_console.print(
             "[red bold]Timed out waiting for containers.[/red bold]\n\n"
             "  Docker may be pulling images (first run can be slow).\n"
             f"  Check status: [bold]cd {qs_dir} && docker compose ps[/bold]"
         )
         raise SystemExit(1) from None
+
+    console.print()
+
+    import time
+    import urllib.request
+
+    deadline = time.monotonic() + 30
+    healthy = False
+    while time.monotonic() < deadline:
+        try:
+            resp = urllib.request.urlopen("http://localhost:9000/minio/health/live", timeout=2)
+            if resp.status == 200:
+                healthy = True
+                break
+        except Exception:
+            time.sleep(1)
+
+    if not healthy:
+        err_console.print(
+            "[red bold]MinIO started but health check failed.[/red bold]\n\n"
+            "  Check container status:\n"
+            f"  [bold]cd {qs_dir} && docker compose ps[/bold]"
+        )
+        raise SystemExit(1)
 
     console.print("  [green]✓[/green] MinIO running on localhost:9000\n")
 
