@@ -38,9 +38,9 @@ class TableBrowser(Tree[str]):
     class NamespaceSelected(Message):
         """Posted when the user selects a namespace node."""
 
-        def __init__(self, namespace: str, table_ids: list[str]) -> None:
+        def __init__(self, ns_name: str, table_ids: list[str]) -> None:
             super().__init__()
-            self.namespace = namespace
+            self.ns_name = ns_name
             self.table_ids = table_ids
 
     class CatalogRootSelected(Message):
@@ -824,14 +824,15 @@ class CatalogOverviewPanel(Static):
     # -- formatting helpers --------------------------------------------------
 
     @staticmethod
-    def _short_name(t: dict) -> str:
-        n = t["name"]
+    def _short_name(t: dict[str, Any]) -> str:
+        n: str = t["name"]
         return n.split(".")[-1] if "." in n else n
 
     @staticmethod
-    def _full_name(t: dict) -> str:
-        ns = t.get("namespace", "")
-        short = t["name"].split(".")[-1] if "." in t["name"] else t["name"]
+    def _full_name(t: dict[str, Any]) -> str:
+        ns: str = t.get("namespace", "")
+        name: str = t["name"]
+        short = name.split(".")[-1] if "." in name else name
         return f"{ns}.{short}" if ns else short
 
     def _format_namespace(self, data: dict) -> str:

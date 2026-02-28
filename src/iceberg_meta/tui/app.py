@@ -6,7 +6,7 @@ from pathlib import Path
 
 from textual.app import App, ComposeResult
 from textual.containers import Horizontal, Vertical
-from textual.widgets import Footer, Static, TabbedContent, TabPane
+from textual.widgets import DataTable, Footer, Static, TabbedContent, TabPane
 
 from iceberg_meta.catalog import CatalogConfig
 from iceberg_meta.tui.screens import DiffScreen, HelpScreen, SnapshotDetailScreen
@@ -110,12 +110,12 @@ class IcebergMetaApp(App):
     def on_table_browser_namespace_selected(self, event: TableBrowser.NamespaceSelected) -> None:
         self._current_table = None
         title_bar = self.query_one("#app-title", Static)
-        title_bar.update(f"iceberg-meta  [dim]│[/dim]  [cyan]{event.namespace}[/cyan]")
+        title_bar.update(f"iceberg-meta  [dim]│[/dim]  [cyan]{event.ns_name}[/cyan]")
 
         self._show_detail_view("overview")
         overview = self.query_one("#overview-panel", CatalogOverviewPanel)
-        overview.border_title = f"Namespace: {event.namespace}"
-        overview.show_namespace(self.catalog_config, event.namespace, event.table_ids)
+        overview.border_title = f"Namespace: {event.ns_name}"
+        overview.show_namespace(self.catalog_config, event.ns_name, event.table_ids)
 
     def on_table_browser_catalog_root_selected(
         self, event: TableBrowser.CatalogRootSelected
@@ -163,7 +163,7 @@ class IcebergMetaApp(App):
             return
 
         snapshots_panel = self.query_one("#snapshots-panel", SnapshotsPanel)
-        dt = snapshots_panel.query_one("#snapshots-dt")
+        dt = snapshots_panel.query_one("#snapshots-dt", DataTable)
 
         if dt.row_count < 2:
             self.notify("Need at least 2 snapshots to diff", severity="warning")
@@ -201,7 +201,7 @@ class IcebergMetaApp(App):
             return
 
         snapshots_panel = self.query_one("#snapshots-panel", SnapshotsPanel)
-        dt = snapshots_panel.query_one("#snapshots-dt")
+        dt = snapshots_panel.query_one("#snapshots-dt", DataTable)
 
         if dt.row_count == 0:
             self.notify("No snapshots available", severity="warning")
