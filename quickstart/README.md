@@ -106,7 +106,6 @@ iceberg-meta -o csv files sales.orders > files.csv
 For a visual, interactive experience instead of individual commands:
 
 ```bash
-pip install iceberg-meta[tui]
 iceberg-meta tui
 ```
 

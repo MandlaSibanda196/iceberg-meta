@@ -553,22 +553,12 @@ def demo(ctx: typer.Context) -> None:
             console.print(f"    {t:<30} {snaps} snapshot{'s' if snaps != 1 else ''}")
     console.print()
 
-    try:
-        from iceberg_meta.tui.app import IcebergMetaApp
+    from iceberg_meta.tui.app import IcebergMetaApp
 
-        console.print("  Launching TUI — press [bold]q[/bold] to quit\n")
+    console.print("  Launching TUI — press [bold]q[/bold] to quit\n")
+    try:
         tui_app = IcebergMetaApp(catalog_config=config)
         tui_app.run()
-    except ImportError:
-        console.print(
-            "  [dim]TUI not installed — showing summary instead[/dim]\n"
-            "  Install with: [bold]pip install iceberg-meta\\[tui][/bold]\n"
-        )
-        for _ns, tables in sorted(tables_by_ns.items()):
-            for t in tables:
-                tbl = get_table(config, t)
-                formatters.render_summary(console, tbl)
-                console.print()
     except Exception as exc:
         err_console.print(f"[red bold]TUI error:[/red bold] {exc}")
     finally:
@@ -1167,18 +1157,8 @@ def diff(
 
 @app.command()
 def tui(ctx: typer.Context) -> None:
-    """Launch the interactive terminal UI.
-
-    Requires: pip install iceberg-meta[tui]
-    """
-    try:
-        from iceberg_meta.tui.app import IcebergMetaApp
-    except ImportError:
-        err_console.print(
-            "[red bold]Missing dependency:[/red bold] The TUI requires the 'textual' package.\n"
-            "  Install it with: [bold]pip install iceberg-meta\\[tui][/bold]"
-        )
-        raise SystemExit(1) from None
+    """Launch the interactive terminal UI."""
+    from iceberg_meta.tui.app import IcebergMetaApp
 
     config: CatalogConfig = ctx.obj["catalog_config"]
     tui_app = IcebergMetaApp(catalog_config=config)

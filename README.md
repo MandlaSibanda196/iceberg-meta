@@ -6,9 +6,6 @@ CLI and TUI for exploring Apache Iceberg table metadata. Inspect snapshots, sche
 
 ```bash
 pip install iceberg-meta
-
-# With the interactive TUI
-pip install iceberg-meta[tui]
 ```
 
 ## Try it instantly
