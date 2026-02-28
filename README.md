@@ -101,6 +101,47 @@ iceberg-meta quickstart --down # tear down when done
 
 Every data command supports `--output json` and `--output csv`.
 
+## Use Cases
+
+**CI/CD validation** -- confirm a pipeline write actually landed before merging:
+
+```bash
+iceberg-meta summary staging.orders && iceberg-meta diff staging.orders $OLD $NEW
+```
+
+**Debugging** -- Spark job "succeeded" but dashboards are empty:
+
+```bash
+iceberg-meta snapshots staging.orders     # did the snapshot land?
+iceberg-meta schema staging.orders --history  # schema break?
+iceberg-meta files staging.orders         # files present and non-empty?
+```
+
+**Table health** -- catch small-file problems and partition skew early:
+
+```bash
+iceberg-meta health warehouse.events
+```
+
+**Live monitoring** -- watch for new snapshots as a pipeline runs:
+
+```bash
+iceberg-meta snapshots warehouse.events --watch 5
+```
+
+**Incident response** -- find when bad data was introduced:
+
+```bash
+iceberg-meta diff prod.customers 111 222
+```
+
+**Scripting** -- pipe into alerts or dashboards:
+
+```bash
+iceberg-meta -o json summary db.events | jq '.file_count'
+iceberg-meta -o csv snapshots db.events > snapshots.csv
+```
+
 ## TUI Keybindings
 
 | Key | Action |
