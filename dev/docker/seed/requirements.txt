@@ -1,1 +1,0 @@
-pyiceberg[s3fs,pyarrow,sql-sqlite]>=0.7.0

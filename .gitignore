@@ -12,10 +12,8 @@ uv.lock
 
 # Local catalog databases
 catalog/
-dev/catalog/
 quickstart/catalog/
 
 # Environment files (contain credentials)
 .env
-dev/.env
 quickstart/.env
