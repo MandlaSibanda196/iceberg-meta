@@ -823,21 +823,22 @@ def quickstart(
 
     console.print("  [green]✓[/green] Sample tables created\n")
 
-    # -- configure iceberg-meta --
+    # -- configure iceberg-meta (use literal values so subsequent commands just work) --
     import contextlib
 
+    catalog_uri = os.environ["ICEBERG_CATALOG_URI"]
     with contextlib.suppress(Exception):
         merge_config_file(
             "quickstart",
             {
                 "type": "sql",
-                "uri": "${ICEBERG_CATALOG_URI}",
-                "warehouse": "${ICEBERG_WAREHOUSE}",
-                "s3.endpoint": "${S3_ENDPOINT}",
-                "s3.access-key-id": "${AWS_ACCESS_KEY_ID}",
-                "s3.secret-access-key": "${AWS_SECRET_ACCESS_KEY}",
+                "uri": catalog_uri,
+                "warehouse": os.environ["ICEBERG_WAREHOUSE"],
+                "s3.endpoint": os.environ["S3_ENDPOINT"],
+                "s3.access-key-id": os.environ["AWS_ACCESS_KEY_ID"],
+                "s3.secret-access-key": os.environ["AWS_SECRET_ACCESS_KEY"],
                 "s3.path-style-access": "true",
-                "s3.region": "${AWS_REGION}",
+                "s3.region": os.environ["AWS_REGION"],
             },
             make_default=True,
         )
