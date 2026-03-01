@@ -8,8 +8,6 @@ from pathlib import Path
 
 import typer
 from dotenv import load_dotenv
-from rich.console import Console
-
 from pyiceberg.exceptions import (
     ForbiddenError,
     NoSuchNamespaceError,
@@ -19,6 +17,8 @@ from pyiceberg.exceptions import (
     SignError,
     UnauthorizedError,
 )
+from rich.console import Console
+
 from iceberg_meta import __version__, formatters
 from iceberg_meta.catalog import (
     CONFIG_FILE,
@@ -66,7 +66,11 @@ def _friendly_error(e: Exception, config: CatalogConfig, table: str | None = Non
             "[red bold]Namespace not found.[/red bold]\n"
             "  Run [bold]iceberg-meta list-tables[/bold] to see available namespaces."
         )
-    elif isinstance(e, (UnauthorizedError, ForbiddenError)) or "unauthorized" in msg or "401" in msg:
+    elif (
+        isinstance(e, (UnauthorizedError, ForbiddenError))
+        or "unauthorized" in msg
+        or "401" in msg
+    ):
         err_console.print(
             "[red bold]Authentication failed:[/red bold] Credentials are invalid or expired.\n"
             "  Check your access key, secret key, and any session tokens."
@@ -1132,11 +1136,11 @@ def health(
             catalog = load_catalog(config.catalog_name, **config.properties)
             # Support both "db" and "db.schema" format for namespace
             ns_tuple = tuple(identifier.split("."))
-            
+
             try:
                 tables = catalog.list_tables(ns_tuple)
             except NoSuchNamespaceError:
-                 # Try listing namespaces to see if it exists but is empty? 
+                 # Try listing namespaces to see if it exists but is empty?
                  # Or just re-raise and let _friendly_error handle it?
                  # _friendly_error handles NoSuchNamespaceError.
                  raise
@@ -1145,8 +1149,10 @@ def health(
                 console.print(f"[yellow]No tables found in namespace '{identifier}'.[/yellow]")
                 return
 
+            count = len(tables)
             console.print(
-                f"Found {len(tables)} tables in namespace '{identifier}'. Running health checks...\n"
+                f"Found {count} tables in namespace"
+                f" '{identifier}'. Running health checks...\n"
             )
 
             for i, tbl_tuple in enumerate(tables):

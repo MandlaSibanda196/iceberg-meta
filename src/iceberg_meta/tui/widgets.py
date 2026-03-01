@@ -500,13 +500,13 @@ class MetadataTreePanel(Static):
         node = event.node
         if not node.data:
             return
-        
+
         # Check if it's a lazy node (has single "Loading..." child)
         if len(node.children) == 1 and str(node.children[0].label) == "Loading...":
             node.remove_children()
             data = node.data
             # Snapshot has snapshot_id
-            if hasattr(data, "snapshot_id"): 
+            if hasattr(data, "snapshot_id"):
                 self.run_worker(self._load_manifests(node, data))
             # ManifestFile has manifest_path
             elif hasattr(data, "manifest_path"):
@@ -516,23 +516,23 @@ class MetadataTreePanel(Static):
         try:
             # Need to run IO in thread
             manifest_files = await asyncio.to_thread(snap.manifests, self.tbl.io)
-            
+
+            path = truncate_path(snap.manifest_list)
             ml_node = node.add(
-                f"[bold cyan]Manifest List:[/bold cyan] [dim]{truncate_path(snap.manifest_list)}[/dim]"
+                f"[bold cyan]Manifest List:[/bold cyan] [dim]{path}[/dim]"
             )
-            
-            # Pre-calculate totals if possible? 
+
+            # Pre-calculate totals if possible?
             # Reading manifest files is needed to get totals.
             # But we want to LAZY load manifest files (entries) too.
             # So we iterate manifest_files (which are ManifestFile objects from the list)
             # and add nodes for them.
-            
+
             for manifest in manifest_files:
                 added = manifest.added_files_count or 0
                 existing = manifest.existing_files_count or 0
-                deleted = manifest.deleted_files_count or 0
                 total = added + existing
-                
+
                 label = (
                     f"[bold green]Manifest:[/bold green] "
                     f"[dim]{truncate_path(manifest.manifest_path)}[/dim]  "
@@ -540,7 +540,7 @@ class MetadataTreePanel(Static):
                 )
                 mnode = ml_node.add(label, data=manifest)
                 mnode.add_leaf("Loading...")
-                
+
             ml_node.expand()
         except Exception as exc:
             node.add_leaf(f"[red]Failed to load manifests: {exc}[/red]")
@@ -548,7 +548,7 @@ class MetadataTreePanel(Static):
     async def _load_entries(self, node: Tree.Node, manifest) -> None:
         try:
             entries = await asyncio.to_thread(manifest.fetch_manifest_entry, self.tbl.io)
-            
+
             # Show max 50 files to prevent UI lag if manifest is huge
             MAX_FILES = 50
             for i, entry in enumerate(entries):
@@ -556,7 +556,7 @@ class MetadataTreePanel(Static):
                     remaining = len(entries) - i
                     node.add_leaf(f"[dim]... and {remaining} more files[/dim]")
                     break
-                    
+
                 df = entry.data_file
                 node.add_leaf(
                     f"[dim]{truncate_path(df.file_path)}[/dim]  "
