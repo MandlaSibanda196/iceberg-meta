@@ -321,7 +321,10 @@ def init(ctx: typer.Context) -> None:
 
     choice = typer.prompt("Enter number", default="1")
     try:
-        preset_key = preset_names[int(choice) - 1]
+        idx = int(choice) - 1
+        if idx < 0 or idx >= len(preset_names):
+            raise IndexError
+        preset_key = preset_names[idx]
     except (ValueError, IndexError):
         err_console.print(f"[red]Invalid choice: {choice}[/red]")
         raise SystemExit(1) from None
@@ -777,35 +780,26 @@ def quickstart(
     # -- seed data --
     console.print("  [bold]Seeding sample tables...[/bold]")
 
-    import os
-
-    os.environ.setdefault("ICEBERG_CATALOG_URI", "sqlite:///catalog/iceberg_catalog.db")
-    os.environ.setdefault("ICEBERG_WAREHOUSE", "s3://warehouse")
-    os.environ.setdefault("S3_ENDPOINT", "http://localhost:9000")
-    os.environ.setdefault("AWS_ACCESS_KEY_ID", "admin")
-    os.environ.setdefault("AWS_SECRET_ACCESS_KEY", "password")
-    os.environ.setdefault("AWS_REGION", "us-east-1")
-
-    catalog_dir = Path("catalog")
+    catalog_dir = qs_dir / "catalog"
     catalog_dir.mkdir(exist_ok=True)
+
+    qs_catalog_props = {
+        "type": "sql",
+        "uri": f"sqlite:///{catalog_dir / 'iceberg_catalog.db'}",
+        "warehouse": "s3://warehouse",
+        "s3.endpoint": "http://localhost:9000",
+        "s3.access-key-id": "admin",
+        "s3.secret-access-key": "password",
+        "s3.path-style-access": "true",
+        "s3.region": "us-east-1",
+    }
 
     try:
         from pyiceberg.catalog.sql import SqlCatalog as _SqlCatalog
 
         from iceberg_meta.demo import _seed_customers, _seed_events, _seed_orders
 
-        cat = _SqlCatalog(
-            "quickstart",
-            **{
-                "uri": os.environ["ICEBERG_CATALOG_URI"],
-                "warehouse": os.environ["ICEBERG_WAREHOUSE"],
-                "s3.endpoint": os.environ["S3_ENDPOINT"],
-                "s3.access-key-id": os.environ["AWS_ACCESS_KEY_ID"],
-                "s3.secret-access-key": os.environ["AWS_SECRET_ACCESS_KEY"],
-                "s3.path-style-access": "true",
-                "s3.region": os.environ["AWS_REGION"],
-            },
-        )
+        cat = _SqlCatalog("quickstart", **qs_catalog_props)
 
         for ns in ("sales", "analytics"):
             cat.create_namespace_if_not_exists(ns)
@@ -826,37 +820,11 @@ def quickstart(
     # -- configure iceberg-meta (use literal values so subsequent commands just work) --
     import contextlib
 
-    catalog_uri = os.environ["ICEBERG_CATALOG_URI"]
     with contextlib.suppress(Exception):
-        merge_config_file(
-            "quickstart",
-            {
-                "type": "sql",
-                "uri": catalog_uri,
-                "warehouse": os.environ["ICEBERG_WAREHOUSE"],
-                "s3.endpoint": os.environ["S3_ENDPOINT"],
-                "s3.access-key-id": os.environ["AWS_ACCESS_KEY_ID"],
-                "s3.secret-access-key": os.environ["AWS_SECRET_ACCESS_KEY"],
-                "s3.path-style-access": "true",
-                "s3.region": os.environ["AWS_REGION"],
-            },
-            make_default=True,
-        )
+        merge_config_file("quickstart", dict(qs_catalog_props), make_default=True)
 
     # -- show results --
-    config = CatalogConfig(
-        catalog_name="quickstart",
-        properties={
-            "type": "sql",
-            "uri": os.environ["ICEBERG_CATALOG_URI"],
-            "warehouse": os.environ["ICEBERG_WAREHOUSE"],
-            "s3.endpoint": os.environ["S3_ENDPOINT"],
-            "s3.access-key-id": os.environ["AWS_ACCESS_KEY_ID"],
-            "s3.secret-access-key": os.environ["AWS_SECRET_ACCESS_KEY"],
-            "s3.path-style-access": "true",
-            "s3.region": os.environ["AWS_REGION"],
-        },
-    )
+    config = CatalogConfig(catalog_name="quickstart", properties=qs_catalog_props)
     tables_by_ns = list_all_tables(config)
     total = sum(len(ts) for ts in tables_by_ns.values())
 
@@ -900,10 +868,6 @@ def _quickstart_teardown() -> None:
         )
 
     shutil.rmtree(qs_dir, ignore_errors=True)
-
-    catalog_dir = Path("catalog")
-    if catalog_dir.exists():
-        shutil.rmtree(catalog_dir, ignore_errors=True)
 
     console.print("[green]✓[/green] Quickstart cleaned up.")
 
@@ -950,7 +914,7 @@ def table_info(
 def snapshots(
     ctx: typer.Context,
     table: str = typer.Argument(help="Table identifier (namespace.table_name)"),
-    watch: int | None = typer.Option(None, "--watch", "-W", help="Refresh every N seconds"),
+    watch: int | None = typer.Option(None, "--watch", "-W", help="Refresh every N seconds", min=1),
 ):
     """List all snapshots with timestamps, operations, and summary stats."""
     config: CatalogConfig = ctx.obj["catalog_config"]

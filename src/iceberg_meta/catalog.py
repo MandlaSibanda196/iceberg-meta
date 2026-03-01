@@ -71,8 +71,20 @@ def _resolve_placeholders(value: str) -> str:
 
 
 def _resolve_props(props: dict[str, str]) -> dict[str, str]:
-    """Resolve ``${VAR}`` placeholders in all string values of *props*."""
-    return {k: _resolve_placeholders(v) if isinstance(v, str) else v for k, v in props.items()}
+    """Resolve ``${VAR}`` placeholders and coerce all values to strings.
+
+    YAML may parse bare ``true``/``false`` as Python bools and numbers as
+    ints/floats.  pyiceberg expects all property values to be strings.
+    """
+
+    def _to_str(v: Any) -> str:
+        if isinstance(v, bool):
+            return str(v).lower()
+        if isinstance(v, str):
+            return _resolve_placeholders(v)
+        return str(v)
+
+    return {k: _to_str(v) for k, v in props.items()}
 
 
 def _apply_env_overrides(props: dict[str, str]) -> dict[str, str]:
@@ -118,6 +130,12 @@ def resolve_catalog_config(
                 f"Catalog '{catalog_name}' not found in {CONFIG_FILE}. "
                 f"Available catalogs: {available}"
             )
+        if name != "default" and catalogs:
+            available = ", ".join(sorted(catalogs))
+            raise ValueError(
+                f"Default catalog '{name}' not found in {CONFIG_FILE}. "
+                f"Available catalogs: {available}"
+            )
 
     props = _apply_env_overrides({})
     return CatalogConfig(
@@ -146,13 +164,30 @@ def get_table(config: CatalogConfig, table_identifier: str) -> Table:
 
 
 def list_all_tables(config: CatalogConfig) -> dict[str, list[str]]:
-    """Return ``{namespace: [table_name, ...]}`` for every namespace in the catalog."""
+    """Return ``{namespace: [table_name, ...]}`` for every namespace in the catalog.
+
+    Recursively discovers nested namespaces so that tables in sub-namespaces
+    (e.g. ``analytics.staging.temp``) are included.
+    """
     catalog = load_catalog(config.catalog_name, **config.properties)
     result: dict[str, list[str]] = {}
-    for ns in catalog.list_namespaces():
-        ns_str = ".".join(ns)
-        tables = catalog.list_tables(ns)
-        result[ns_str] = [".".join(t) for t in tables]
+    visited: set[tuple[str, ...]] = set()
+
+    def _walk(parent: tuple[str, ...] = ()) -> None:
+        try:
+            namespaces = catalog.list_namespaces(parent) if parent else catalog.list_namespaces()
+        except Exception:
+            return
+        for ns in namespaces:
+            if ns in visited:
+                continue
+            visited.add(ns)
+            ns_str = ".".join(ns)
+            tables = catalog.list_tables(ns)
+            result[ns_str] = [".".join(t) for t in tables]
+            _walk(ns)
+
+    _walk()
     return result
 
 

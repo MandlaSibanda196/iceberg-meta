@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import asyncio
+from functools import partial
 from typing import Any
 
 from textual.message import Message
@@ -62,7 +64,7 @@ class TableBrowser(Tree[str]):
 
     async def _load_tables(self) -> None:
         try:
-            tables_by_ns = list_all_tables(self.config)
+            tables_by_ns = await asyncio.to_thread(list_all_tables, self.config)
             self._tables_by_ns = tables_by_ns
             self.clear()
             for ns, tables in sorted(tables_by_ns.items()):
@@ -112,9 +114,9 @@ class SummaryPanel(Static):
 
     async def _load(self, config: CatalogConfig, table_id: str) -> None:
         try:
-            tbl = get_table(config, table_id)
-            data = collect_summary(tbl)
-            info_rows = collect_table_info(tbl)
+            tbl = await asyncio.to_thread(get_table, config, table_id)
+            data = await asyncio.to_thread(collect_summary, tbl)
+            info_rows = await asyncio.to_thread(collect_table_info, tbl)
 
             lines: list[str] = []
             lines.append(f"[bold]{data['table_name']}[/bold]  [dim]v{data['format_version']}[/dim]")
@@ -135,7 +137,7 @@ class SummaryPanel(Static):
             lines.append(f"  [cyan]Last Updated:[/cyan] {data['last_updated']}")
 
             try:
-                health = collect_table_health(tbl)
+                health = await asyncio.to_thread(collect_table_health, tbl)
                 fh = health["file_health"]
                 if fh["file_count"] > 0:
                     health_str = f"avg {format_bytes(fh['avg_size'])} ({fh['file_count']} files"
@@ -214,8 +216,8 @@ class SnapshotsPanel(Static):
 
     async def _load(self, config: CatalogConfig, table_id: str) -> None:
         try:
-            tbl = get_table(config, table_id)
-            data = collect_snapshots(tbl)
+            tbl = await asyncio.to_thread(get_table, config, table_id)
+            data = await asyncio.to_thread(collect_snapshots, tbl)
 
             dt = self.query_one("#snapshots-dt", DataTable)
             dt.clear(columns=True)
@@ -260,7 +262,7 @@ class SchemaPanel(Static):
 
     async def _load(self, config: CatalogConfig, table_id: str) -> None:
         try:
-            tbl = get_table(config, table_id)
+            tbl = await asyncio.to_thread(get_table, config, table_id)
             tree = self.query_one("#schema-tree", Tree)
             tree.clear()
 
@@ -384,8 +386,8 @@ class FilesPanel(Static):
 
     async def _load(self, config: CatalogConfig, table_id: str) -> None:
         try:
-            tbl = get_table(config, table_id)
-            data = collect_files(tbl)
+            tbl = await asyncio.to_thread(get_table, config, table_id)
+            data = await asyncio.to_thread(collect_files, tbl)
 
             dt = self.query_one("#files-dt", DataTable)
             dt.clear(columns=True)
@@ -452,7 +454,7 @@ class MetadataTreePanel(Static):
 
     async def _load(self, config: CatalogConfig, table_id: str) -> None:
         try:
-            tbl = get_table(config, table_id)
+            tbl = await asyncio.to_thread(get_table, config, table_id)
             tree = self.query_one("#meta-tree", Tree)
             tree.clear()
             tree.root.set_label(f"Table: {tbl.name()}  (v{tbl.metadata.format_version})")
@@ -552,8 +554,8 @@ class HealthPanel(Static):
 
     async def _load(self, config: CatalogConfig, table_id: str) -> None:
         try:
-            tbl = get_table(config, table_id)
-            health = collect_table_health(tbl)
+            tbl = await asyncio.to_thread(get_table, config, table_id)
+            health = await asyncio.to_thread(collect_table_health, tbl)
             self.update(self._format_health(health))
         except Exception as exc:
             self.update(f"[red]Failed to load health data: {exc}[/red]")
@@ -640,7 +642,9 @@ class HealthPanel(Static):
 
         # --- Partition Overlap ---
         overlap = health["partition_overlap"]
-        if overlap["overlap_warning"]:
+        if overlap["overlap_warning"] is None:
+            lines.append("\n  [dim]Overlap detection skipped (too many data files)[/dim]")
+        elif overlap["overlap_warning"]:
             lines.append(
                 f"\n  [yellow]Overlap: {overlap['overlapping_pairs']} file pair"
                 f"{'s' if overlap['overlapping_pairs'] != 1 else ''} "
@@ -722,8 +726,8 @@ class ManifestsPanel(Static):
 
     async def _load(self, config: CatalogConfig, table_id: str) -> None:
         try:
-            tbl = get_table(config, table_id)
-            data = collect_manifests(tbl)
+            tbl = await asyncio.to_thread(get_table, config, table_id)
+            data = await asyncio.to_thread(collect_manifests, tbl)
 
             dt = self.query_one("#manifests-dt", DataTable)
             dt.clear(columns=True)
@@ -801,7 +805,9 @@ class CatalogOverviewPanel(Static):
         self, config: CatalogConfig, namespace: str, table_ids: list[str]
     ) -> None:
         try:
-            data = collect_namespace_overview(config, namespace, table_ids)
+            data = await asyncio.to_thread(
+                partial(collect_namespace_overview, config, namespace, table_ids)
+            )
             self.update(self._format_namespace(data))
         except Exception as exc:
             self.update(f"[red]Error loading namespace overview: {exc}[/red]")
@@ -813,7 +819,9 @@ class CatalogOverviewPanel(Static):
         self, config: CatalogConfig, tables_by_ns: dict[str, list[str]]
     ) -> None:
         try:
-            data = collect_warehouse_overview(config, tables_by_ns)
+            data = await asyncio.to_thread(
+                partial(collect_warehouse_overview, config, tables_by_ns)
+            )
             self.update(self._format_warehouse(data))
         except Exception as exc:
             self.update(f"[red]Error loading warehouse overview: {exc}[/red]")

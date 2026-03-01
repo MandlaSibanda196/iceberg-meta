@@ -47,6 +47,15 @@ def _size_color(size_bytes: int, avg_bytes: float) -> str:
     return "red"
 
 
+def _format_net(value: int, formatter: Any = str) -> str:
+    """Format a net-change value with an explicit +/- sign."""
+    if value > 0:
+        return f"+{formatter(value)}"
+    if value < 0:
+        return f"-{formatter(abs(value))}"
+    return str(formatter(value))
+
+
 # ─── table-info ───────────────────────────────────────────────
 
 
@@ -94,8 +103,8 @@ def render_table_info(
 
     render_schema(console, tbl.schema())
 
-    if md.default_spec_id < len(md.partition_specs):
-        spec = md.partition_specs[md.default_spec_id]
+    spec = next((s for s in md.partition_specs if s.spec_id == md.default_spec_id), None)
+    if spec is not None:
         if spec.fields:
             console.print("\n[bold]Partition Spec:[/bold]")
             for field in spec.fields:
@@ -184,7 +193,7 @@ def render_snapshots(
 def collect_manifests(tbl: IcebergTable, snapshot_id: int | None = None) -> list[dict[str, Any]]:
     """Extract manifest rows for the current or specified snapshot."""
     snap = None
-    if snapshot_id:
+    if snapshot_id is not None:
         snap = _find_snapshot(tbl, snapshot_id)
     else:
         if tbl.metadata.current_snapshot_id is not None:
@@ -222,7 +231,7 @@ def render_manifests(
 ) -> None:
     """Render manifest files for current or specified snapshot."""
     snap = None
-    if snapshot_id:
+    if snapshot_id is not None:
         snap = _find_snapshot(tbl, snapshot_id)
         if not snap:
             console.print(f"[red]Snapshot {snapshot_id} not found[/red]")
@@ -256,7 +265,7 @@ def render_manifests(
 
 def collect_files(tbl: IcebergTable, snapshot_id: int | None = None) -> list[dict[str, Any]]:
     """Extract data file rows."""
-    kwargs = {"snapshot_id": snapshot_id} if snapshot_id else {}
+    kwargs = {"snapshot_id": snapshot_id} if snapshot_id is not None else {}
     try:
         pa_table = tbl.inspect.files(**kwargs)
     except Exception:
@@ -335,6 +344,7 @@ def render_partitions(
 # ─── table health ─────────────────────────────────────────────
 
 SMALL_FILE_THRESHOLD = 32 * 1024 * 1024  # 32 MB
+_OVERLAP_FILE_LIMIT = 500
 
 
 def _to_dict(value: Any) -> dict:
@@ -437,8 +447,8 @@ def collect_table_health(tbl: IcebergTable) -> dict[str, Any]:
         md = tbl.metadata
         schema = tbl.schema()
         field_by_id_spec = {f.field_id: f for f in schema.fields}
-        if md.default_spec_id < len(md.partition_specs):
-            spec = md.partition_specs[md.default_spec_id]
+        spec = next((s for s in md.partition_specs if s.spec_id == md.default_spec_id), None)
+        if spec is not None:
             for pf in spec.fields:
                 source_field = field_by_id_spec.get(pf.source_id)
                 source_name = source_field.name if source_field else f"id={pf.source_id}"
@@ -590,36 +600,39 @@ def collect_table_health(tbl: IcebergTable) -> dict[str, Any]:
     overlap_count = 0
     overlap_warning = False
     try:
-        specs = tbl.metadata.partition_specs
         default_spec_id = tbl.metadata.default_spec_id
-        if default_spec_id < len(specs):
-            spec = specs[default_spec_id]
-            if spec.fields:
-                source_id = spec.fields[0].source_id
-                if source_id in field_by_id:
-                    field = field_by_id[source_id]
-                    from pyiceberg.types import PrimitiveType as PT
+        spec = next((s for s in tbl.metadata.partition_specs if s.spec_id == default_spec_id), None)
+        if spec is not None and spec.fields:
+            source_id = spec.fields[0].source_id
+            if source_id in field_by_id:
+                field = field_by_id[source_id]
+                from pyiceberg.types import PrimitiveType as PT
 
-                    if isinstance(field.field_type, PT):
-                        from pyiceberg.conversions import from_bytes as fb
+                if isinstance(field.field_type, PT):
+                    from pyiceberg.conversions import from_bytes as fb
 
-                        file_ranges: list[tuple[Any, Any]] = []
-                        for row in file_rows:
-                            lb = _to_dict(row.get("lower_bounds")).get(source_id)
-                            ub = _to_dict(row.get("upper_bounds")).get(source_id)
-                            if lb is not None and ub is not None:
-                                try:
-                                    lo = fb(field.field_type, lb)
-                                    hi = fb(field.field_type, ub)
-                                    file_ranges.append((lo, hi))
-                                except Exception:
-                                    pass
-                        for i in range(len(file_ranges)):
+                    file_ranges: list[tuple[Any, Any]] = []
+                    for row in file_rows:
+                        lb = _to_dict(row.get("lower_bounds")).get(source_id)
+                        ub = _to_dict(row.get("upper_bounds")).get(source_id)
+                        if lb is not None and ub is not None:
+                            try:
+                                lo = fb(field.field_type, lb)
+                                hi = fb(field.field_type, ub)
+                                file_ranges.append((lo, hi))
+                            except Exception:
+                                pass
+                    if len(file_ranges) > _OVERLAP_FILE_LIMIT:
+                        overlap_warning = None  # type: ignore[assignment]
+                    else:
+                        file_ranges.sort(key=lambda r: r[0])
+                        for i in range(len(file_ranges) - 1):
+                            _lo_i, hi_i = file_ranges[i]
                             for j in range(i + 1, len(file_ranges)):
-                                lo_i, hi_i = file_ranges[i]
-                                lo_j, hi_j = file_ranges[j]
-                                if lo_i <= hi_j and lo_j <= hi_i:
-                                    overlap_count += 1
+                                lo_j, _hi_j = file_ranges[j]
+                                if lo_j > hi_i:
+                                    break
+                                overlap_count += 1
                         overlap_warning = overlap_count > 0
     except Exception:
         log.debug("Failed to compute partition overlap", exc_info=True)
@@ -797,7 +810,9 @@ def render_table_health(
         console.print("  [dim]Unpartitioned[/dim]")
 
     overlap = health["partition_overlap"]
-    if overlap["overlap_warning"]:
+    if overlap["overlap_warning"] is None:
+        console.print("\n  [dim]Overlap detection skipped (too many data files)[/dim]")
+    elif overlap["overlap_warning"]:
         console.print(
             f"\n  [yellow]Overlap: {overlap['overlapping_pairs']} file pair"
             f"{'s' if overlap['overlapping_pairs'] != 1 else ''} "
@@ -1109,11 +1124,10 @@ def render_diff(
         f"({format_bytes(data['deleted_size'])}, {data['deleted_rows']:,} rows)"
     )
 
-    sign = "+" if data["net_size"] >= 0 else ""
     console.print(
-        f"  [bold]Net:[/bold] {sign}{data['net_files']} files, "
-        f"{sign}{format_bytes(data['net_size'])}, "
-        f"{sign}{data['net_rows']:,} rows"
+        f"  [bold]Net:[/bold] {_format_net(data['net_files'])} files, "
+        f"{_format_net(data['net_size'], format_bytes)}, "
+        f"{_format_net(data['net_rows'], lambda v: f'{v:,}')} rows"
     )
 
     if data["added_files"]:
@@ -1187,7 +1201,7 @@ def render_metadata_tree(
 
     if all_snapshots:
         snaps = tbl.metadata.snapshots
-    elif snapshot_id:
+    elif snapshot_id is not None:
         snap = _find_snapshot(tbl, snapshot_id)
         if not snap:
             console.print(f"[red]Snapshot {snapshot_id} not found[/red]")
@@ -1295,15 +1309,14 @@ def _table_meta_summary(tbl: IcebergTable) -> dict[str, Any]:
     try:
         schema = tbl.schema()
         field_by_id = {f.field_id: f for f in schema.fields}
-        if md.default_spec_id < len(md.partition_specs):
-            spec = md.partition_specs[md.default_spec_id]
-            if spec.fields:
-                parts = []
-                for pf in spec.fields:
-                    src = field_by_id.get(pf.source_id)
-                    src_name = src.name if src else f"id={pf.source_id}"
-                    parts.append(f"{pf.transform}({src_name})")
-                partition_desc = ", ".join(parts)
+        spec = next((s for s in md.partition_specs if s.spec_id == md.default_spec_id), None)
+        if spec is not None and spec.fields:
+            parts = []
+            for pf in spec.fields:
+                src = field_by_id.get(pf.source_id)
+                src_name = src.name if src else f"id={pf.source_id}"
+                parts.append(f"{pf.transform}({src_name})")
+            partition_desc = ", ".join(parts)
     except Exception:
         pass
 
@@ -1319,7 +1332,11 @@ def _table_meta_summary(tbl: IcebergTable) -> dict[str, Any]:
     total_records = 0
     total_size = 0
     try:
-        current_snap = md.snapshots[-1] if md.snapshots else None
+        current_snap = None
+        if md.current_snapshot_id is not None:
+            current_snap = next(
+                (s for s in md.snapshots if s.snapshot_id == md.current_snapshot_id), None
+            )
         if current_snap and current_snap.summary:
             props = current_snap.summary.additional_properties
             total_files = int(props.get("total-data-files", 0))
