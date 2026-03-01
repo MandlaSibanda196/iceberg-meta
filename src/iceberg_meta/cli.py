@@ -67,9 +67,7 @@ def _friendly_error(e: Exception, config: CatalogConfig, table: str | None = Non
             "  Run [bold]iceberg-meta list-tables[/bold] to see available namespaces."
         )
     elif (
-        isinstance(e, (UnauthorizedError, ForbiddenError))
-        or "unauthorized" in msg
-        or "401" in msg
+        isinstance(e, (UnauthorizedError, ForbiddenError)) or "unauthorized" in msg or "401" in msg
     ):
         err_console.print(
             "[red bold]Authentication failed:[/red bold] Credentials are invalid or expired.\n"
@@ -1140,10 +1138,10 @@ def health(
             try:
                 tables = catalog.list_tables(ns_tuple)
             except NoSuchNamespaceError:
-                 # Try listing namespaces to see if it exists but is empty?
-                 # Or just re-raise and let _friendly_error handle it?
-                 # _friendly_error handles NoSuchNamespaceError.
-                 raise
+                # Try listing namespaces to see if it exists but is empty?
+                # Or just re-raise and let _friendly_error handle it?
+                # _friendly_error handles NoSuchNamespaceError.
+                raise
 
             if not tables:
                 console.print(f"[yellow]No tables found in namespace '{identifier}'.[/yellow]")
@@ -1151,13 +1149,12 @@ def health(
 
             count = len(tables)
             console.print(
-                f"Found {count} tables in namespace"
-                f" '{identifier}'. Running health checks...\n"
+                f"Found {count} tables in namespace '{identifier}'. Running health checks...\n"
             )
 
             for i, tbl_tuple in enumerate(tables):
                 tbl_name = ".".join(tbl_tuple)
-                console.print(f"[bold cyan]Table {i+1}/{len(tables)}: {tbl_name}[/bold cyan]")
+                console.print(f"[bold cyan]Table {i + 1}/{len(tables)}: {tbl_name}[/bold cyan]")
                 try:
                     tbl = catalog.load_table(tbl_name)
                     formatters.render_table_health(console, tbl, fmt=fmt)

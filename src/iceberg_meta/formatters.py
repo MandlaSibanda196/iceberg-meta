@@ -595,12 +595,8 @@ def collect_table_health(tbl: IcebergTable) -> dict[str, Any]:
                 column_bounds.append(
                     {
                         "field_name": field.name,
-                        "min_value": _format_bound_value(min_val)
-                        if min_val is not None
-                        else "?",
-                        "max_value": _format_bound_value(max_val)
-                        if max_val is not None
-                        else "?",
+                        "min_value": _format_bound_value(min_val) if min_val is not None else "?",
+                        "max_value": _format_bound_value(max_val) if max_val is not None else "?",
                     }
                 )
     except ImportError:
@@ -836,10 +832,7 @@ def render_table_health(
         if count < 0:
             msg = "Overlap detected: Multiple files have overlapping bounds"
         else:
-            msg = (
-                f"Overlap: {count} file pair{'s' if count != 1 else ''} "
-                "with overlapping bounds"
-            )
+            msg = f"Overlap: {count} file pair{'s' if count != 1 else ''} with overlapping bounds"
         console.print(f"\n  [yellow]{msg} -- may hurt scan performance[/yellow]")
 
     # --- Column Null Rates ---

@@ -512,15 +512,13 @@ class MetadataTreePanel(Static):
             elif hasattr(data, "manifest_path"):
                 self.run_worker(self._load_entries(node, data))
 
-    async def _load_manifests(self, node: Tree.Node, snap) -> None:
+    async def _load_manifests(self, node: Any, snap: Any) -> None:
         try:
             # Need to run IO in thread
             manifest_files = await asyncio.to_thread(snap.manifests, self.tbl.io)
 
             path = truncate_path(snap.manifest_list)
-            ml_node = node.add(
-                f"[bold cyan]Manifest List:[/bold cyan] [dim]{path}[/dim]"
-            )
+            ml_node = node.add(f"[bold cyan]Manifest List:[/bold cyan] [dim]{path}[/dim]")
 
             # Pre-calculate totals if possible?
             # Reading manifest files is needed to get totals.
@@ -545,7 +543,7 @@ class MetadataTreePanel(Static):
         except Exception as exc:
             node.add_leaf(f"[red]Failed to load manifests: {exc}[/red]")
 
-    async def _load_entries(self, node: Tree.Node, manifest) -> None:
+    async def _load_entries(self, node: Any, manifest: Any) -> None:
         try:
             entries = await asyncio.to_thread(manifest.fetch_manifest_entry, self.tbl.io)
 
@@ -564,7 +562,6 @@ class MetadataTreePanel(Static):
                 )
         except Exception as exc:
             node.add_leaf(f"[red]Failed to load entries: {exc}[/red]")
-
 
 
 # ---------------------------------------------------------------------------
