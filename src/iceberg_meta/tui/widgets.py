@@ -454,7 +454,8 @@ class MetadataTreePanel(Static):
 
     async def _load(self, config: CatalogConfig, table_id: str) -> None:
         try:
-            tbl = await asyncio.to_thread(get_table, config, table_id)
+            self.tbl = await asyncio.to_thread(get_table, config, table_id)
+            tbl = self.tbl
             tree = self.query_one("#meta-tree", Tree)
             tree.clear()
             tree.root.set_label(f"Table: {tbl.name()}  (v{tbl.metadata.format_version})")
@@ -464,8 +465,11 @@ class MetadataTreePanel(Static):
                 tree.root.expand()
                 return
 
-            for snap in tbl.metadata.snapshots:
-                self._add_snapshot(tree.root, tbl, snap)
+            # Add snapshots in reverse order (newest first) for better UX?
+            # Or chronological? usually chronological or reverse chronological.
+            # Current implementation did chronological (metadata.snapshots order).
+            for snap in reversed(tbl.metadata.snapshots):
+                self._add_snapshot_node(tree.root, tbl, snap)
 
             tree.root.expand()
         except Exception as exc:
@@ -478,63 +482,89 @@ class MetadataTreePanel(Static):
         finally:
             self.loading = False
 
-    def _add_snapshot(self, root, tbl, snap) -> None:
+    def _add_snapshot_node(self, root, tbl, snap) -> None:
         op = snap.summary.operation.value if snap.summary else "unknown"
         is_current = snap.snapshot_id == tbl.metadata.current_snapshot_id
         current = " [bold green](current)[/bold green]" if is_current else ""
-        snap_node = root.add(
+        label = (
             f"[bold]Snapshot {snap.snapshot_id}[/bold]  "
             f"[dim][{op}][/dim]  "
             f"[dim]{format_timestamp_ms(snap.timestamp_ms)}[/dim]{current}"
         )
+        node = root.add(label, data=snap)
+        node.add_leaf("Loading...")
+        if is_current:
+            node.expand()
 
-        ml_node = snap_node.add(
-            f"[bold cyan]Manifest List:[/bold cyan] [dim]{truncate_path(snap.manifest_list)}[/dim]"
-        )
-
-        try:
-            manifest_files = snap.manifests(tbl.io)
-        except Exception as exc:
-            ml_node.add_leaf(f"[red]Failed to read manifests: {exc}[/red]")
+    def on_tree_node_expanded(self, event: Tree.NodeExpanded) -> None:
+        node = event.node
+        if not node.data:
             return
+        
+        # Check if it's a lazy node (has single "Loading..." child)
+        if len(node.children) == 1 and str(node.children[0].label) == "Loading...":
+            node.remove_children()
+            data = node.data
+            # Snapshot has snapshot_id
+            if hasattr(data, "snapshot_id"): 
+                self.run_worker(self._load_manifests(node, data))
+            # ManifestFile has manifest_path
+            elif hasattr(data, "manifest_path"):
+                self.run_worker(self._load_entries(node, data))
 
-        all_entries = []
-        total_rows = 0
-        all_sizes: list[int] = []
-        for m in manifest_files:
-            try:
-                entries = m.fetch_manifest_entry(tbl.io)
-            except Exception:
-                entries = []
-            all_entries.append(entries)
-            for e in entries:
-                total_rows += e.data_file.record_count
-                all_sizes.append(e.data_file.file_size_in_bytes)
-
-        for manifest, entries in zip(manifest_files, all_entries, strict=True):
-            added = manifest.added_files_count or 0
-            existing = manifest.existing_files_count or 0
-            file_count = added + existing
-            manifest_rows = sum(e.data_file.record_count for e in entries)
-            pct = f", {manifest_rows / total_rows:.0%} of rows" if total_rows else ""
-
-            m_node = ml_node.add(
-                f"[bold green]Manifest:[/bold green] "
-                f"[dim]{truncate_path(manifest.manifest_path)}[/dim]  "
-                f"({file_count} files, {format_bytes(manifest.manifest_length)}{pct})"
+    async def _load_manifests(self, node: Tree.Node, snap) -> None:
+        try:
+            # Need to run IO in thread
+            manifest_files = await asyncio.to_thread(snap.manifests, self.tbl.io)
+            
+            ml_node = node.add(
+                f"[bold cyan]Manifest List:[/bold cyan] [dim]{truncate_path(snap.manifest_list)}[/dim]"
             )
+            
+            # Pre-calculate totals if possible? 
+            # Reading manifest files is needed to get totals.
+            # But we want to LAZY load manifest files (entries) too.
+            # So we iterate manifest_files (which are ManifestFile objects from the list)
+            # and add nodes for them.
+            
+            for manifest in manifest_files:
+                added = manifest.added_files_count or 0
+                existing = manifest.existing_files_count or 0
+                deleted = manifest.deleted_files_count or 0
+                total = added + existing
+                
+                label = (
+                    f"[bold green]Manifest:[/bold green] "
+                    f"[dim]{truncate_path(manifest.manifest_path)}[/dim]  "
+                    f"({total} files, {format_bytes(manifest.manifest_length)})"
+                )
+                mnode = ml_node.add(label, data=manifest)
+                mnode.add_leaf("Loading...")
+                
+            ml_node.expand()
+        except Exception as exc:
+            node.add_leaf(f"[red]Failed to load manifests: {exc}[/red]")
 
-            max_files = 10
+    async def _load_entries(self, node: Tree.Node, manifest) -> None:
+        try:
+            entries = await asyncio.to_thread(manifest.fetch_manifest_entry, self.tbl.io)
+            
+            # Show max 50 files to prevent UI lag if manifest is huge
+            MAX_FILES = 50
             for i, entry in enumerate(entries):
-                if i >= max_files:
+                if i >= MAX_FILES:
                     remaining = len(entries) - i
-                    m_node.add_leaf(f"[dim]... and {remaining} more files[/dim]")
+                    node.add_leaf(f"[dim]... and {remaining} more files[/dim]")
                     break
+                    
                 df = entry.data_file
-                m_node.add_leaf(
+                node.add_leaf(
                     f"[dim]{truncate_path(df.file_path)}[/dim]  "
                     f"({df.record_count:,} rows, {format_bytes(df.file_size_in_bytes)})"
                 )
+        except Exception as exc:
+            node.add_leaf(f"[red]Failed to load entries: {exc}[/red]")
+
 
 
 # ---------------------------------------------------------------------------

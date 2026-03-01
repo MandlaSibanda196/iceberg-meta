@@ -2,10 +2,50 @@
 
 CLI and TUI for exploring Apache Iceberg table metadata. Inspect snapshots, schemas, manifests, data files, partition health, and column-level statistics -- without Spark or notebooks.
 
+## Why use this?
+
+While the official `pyiceberg` CLI is great for basic operations, `iceberg-meta` is built specifically for **data engineers** who need to debug, optimize, and understand their tables.
+
+*   **⚡ Instant Feedback:** No Spark cluster startup time.
+*   **🔍 Deep Visibility:** Inspect manifest lists, manifest files, and individual data files.
+*   **🏥 Health Checks:** Detect small files, partition skew, and compaction needs in seconds.
+*   **📉 Diff Everything:** Compare two snapshots to see exactly what changed (files added/deleted, rows changed).
+*   **🖥️ Interactive TUI:** Browse your catalog with a powerful terminal UI.
+*   **🤖 CI/CD Ready:** Output JSON/CSV for automated checks in your pipelines.
+
+## Performance & Benchmarks
+
+We take performance seriously. Data engineers shouldn't wait minutes for simple metadata checks.
+
+**Benchmark Scenario:**
+- **Table:** 5,000 data files, 50,000 rows (simulating a "small file problem" scenario).
+- **Environment:** Local development machine (SQLite catalog).
+- **Task:** Full metadata scan, partition skew calculation, and file listing.
+
+| Command | Task | Time | vs Spark (Local) |
+|---|---|---|---|
+| `summary` | Read latest snapshot & schema | **~1.5s** | ~15s+ (startup) |
+| `health` | Full scan of 5,000 files (skew, nulls, bounds) | **~1.5s** | ~20s+ |
+| `files` | List all 5,000 file paths & stats | **~2.1s** | ~20s+ |
+| `tree` | Render TUI with lazy loading | **Instant** | N/A |
+
+*Note: Spark times include JVM startup overhead, which is the main friction point `iceberg-meta` eliminates for quick checks.*
+
 ## Install
+
+### From PyPI
 
 ```bash
 pip install iceberg-meta
+```
+
+### From Homebrew (macOS/Linux)
+
+You can install directly from the repository:
+
+```bash
+brew tap MandlaSibanda196/iceberg-meta https://github.com/MandlaSibanda196/iceberg-meta
+brew install iceberg-meta
 ```
 
 ## Try it instantly

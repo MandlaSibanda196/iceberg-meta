@@ -202,11 +202,8 @@ def collect_manifests(tbl: IcebergTable, snapshot_id: int | None = None) -> list
         return []
 
     rows: list[dict[str, Any]] = []
-    try:
-        manifest_list = snap.manifests(tbl.io)
-    except Exception:
-        log.debug("Failed to read manifests for snapshot %s", snap.snapshot_id, exc_info=True)
-        return rows
+    # Removed try-except to avoid partial data
+    manifest_list = snap.manifests(tbl.io)
 
     for m in manifest_list:
         rows.append(
@@ -266,11 +263,8 @@ def render_manifests(
 def collect_files(tbl: IcebergTable, snapshot_id: int | None = None) -> list[dict[str, Any]]:
     """Extract data file rows."""
     kwargs = {"snapshot_id": snapshot_id} if snapshot_id is not None else {}
-    try:
-        pa_table = tbl.inspect.files(**kwargs)
-    except Exception:
-        log.debug("Failed to inspect files for table %s", tbl.name(), exc_info=True)
-        return []
+    # Removed try-except to avoid partial data
+    pa_table = tbl.inspect.files(**kwargs)
 
     rows: list[dict[str, Any]] = []
     for row in pa_table.to_pylist():
@@ -344,7 +338,7 @@ def render_partitions(
 # ─── table health ─────────────────────────────────────────────
 
 SMALL_FILE_THRESHOLD = 32 * 1024 * 1024  # 32 MB
-_OVERLAP_FILE_LIMIT = 500
+_OVERLAP_FILE_LIMIT = 1000
 
 
 def _to_dict(value: Any) -> dict:
@@ -386,13 +380,42 @@ def collect_table_health(tbl: IcebergTable) -> dict[str, Any]:
     """
     result: dict[str, Any] = {}
 
+    # Handle empty tables (no snapshots) gracefully
+    if tbl.metadata.current_snapshot_id is None:
+        result["file_health"] = {
+            "file_count": 0,
+            "min_size": 0,
+            "max_size": 0,
+            "avg_size": 0,
+            "median_size": 0,
+            "total_size": 0,
+            "small_file_count": 0,
+            "small_file_warning": False,
+        }
+        result["delete_files"] = {
+            "data_manifest_count": 0,
+            "delete_manifest_count": 0,
+            "compaction_recommended": False,
+        }
+        result["partition_spec"] = []
+        result["partitions"] = {
+            "rows": [],
+            "count": 0,
+            "skew_ratio": 0,
+            "skewed_partitions": [],
+        }
+        result["column_nulls"] = []
+        result["column_sizes"] = []
+        result["column_bounds"] = []
+        result["partition_overlap"] = {
+            "overlapping_pairs": 0,
+            "overlap_warning": False,
+        }
+        return result
+
     # --- file health --------------------------------------------------
-    try:
-        pa_files = tbl.inspect.files()
-        file_rows = pa_files.to_pylist()
-    except Exception:
-        log.debug("Failed to inspect files for health", exc_info=True)
-        file_rows = []
+    pa_files = tbl.inspect.files()
+    file_rows = pa_files.to_pylist()
 
     sizes = [r.get("file_size_in_bytes", 0) for r in file_rows]
     if sizes:
@@ -422,18 +445,15 @@ def collect_table_health(tbl: IcebergTable) -> dict[str, Any]:
     # --- delete file accumulation -------------------------------------
     data_manifests = 0
     delete_manifests = 0
-    try:
-        if tbl.metadata.current_snapshot_id is not None:
-            snap = _find_snapshot(tbl, tbl.metadata.current_snapshot_id)
-            if snap:
-                for m in snap.manifests(tbl.io):
-                    content = str(m.content.value) if m.content else "0"
-                    if content == "0":
-                        data_manifests += 1
-                    else:
-                        delete_manifests += 1
-    except Exception:
-        log.debug("Failed to read manifests for health", exc_info=True)
+    if tbl.metadata.current_snapshot_id is not None:
+        snap = _find_snapshot(tbl, tbl.metadata.current_snapshot_id)
+        if snap:
+            for m in snap.manifests(tbl.io):
+                content = str(m.content.value) if m.content else "0"
+                if content == "0":
+                    data_manifests += 1
+                else:
+                    delete_manifests += 1
 
     result["delete_files"] = {
         "data_manifest_count": data_manifests,
@@ -443,33 +463,26 @@ def collect_table_health(tbl: IcebergTable) -> dict[str, Any]:
 
     # --- partition spec (how the table is partitioned) ------------------
     partition_spec: list[dict[str, str]] = []
-    try:
-        md = tbl.metadata
-        schema = tbl.schema()
-        field_by_id_spec = {f.field_id: f for f in schema.fields}
-        spec = next((s for s in md.partition_specs if s.spec_id == md.default_spec_id), None)
-        if spec is not None:
-            for pf in spec.fields:
-                source_field = field_by_id_spec.get(pf.source_id)
-                source_name = source_field.name if source_field else f"id={pf.source_id}"
-                partition_spec.append(
-                    {
-                        "name": pf.name,
-                        "transform": str(pf.transform),
-                        "source_field": source_name,
-                    }
-                )
-    except Exception:
-        log.debug("Failed to read partition spec for health", exc_info=True)
+    md = tbl.metadata
+    schema = tbl.schema()
+    field_by_id_spec = {f.field_id: f for f in schema.fields}
+    spec = next((s for s in md.partition_specs if s.spec_id == md.default_spec_id), None)
+    if spec is not None:
+        for pf in spec.fields:
+            source_field = field_by_id_spec.get(pf.source_id)
+            source_name = source_field.name if source_field else f"id={pf.source_id}"
+            partition_spec.append(
+                {
+                    "name": pf.name,
+                    "transform": str(pf.transform),
+                    "source_field": source_name,
+                }
+            )
+
     result["partition_spec"] = partition_spec
 
     # --- partition distribution with skew detection -------------------
-    try:
-        part_rows = tbl.inspect.partitions().to_pylist()
-    except Exception:
-        log.debug("Failed to inspect partitions for health", exc_info=True)
-        part_rows = []
-
+    part_rows = tbl.inspect.partitions().to_pylist()
     partition_data: list[dict[str, Any]] = []
     file_counts: list[int] = []
     for row in part_rows:
@@ -571,27 +584,25 @@ def collect_table_health(tbl: IcebergTable) -> dict[str, Any]:
             field = field_by_id[fid]
             if not isinstance(field.field_type, PrimitiveType):
                 continue
-            try:
-                lowers = lower_bounds_raw.get(fid, [])
-                uppers = upper_bounds_raw.get(fid, [])
-                decoded_lowers = [from_bytes(field.field_type, b) for b in lowers if b]
-                decoded_uppers = [from_bytes(field.field_type, b) for b in uppers if b]
-                min_val = min(decoded_lowers) if decoded_lowers else None
-                max_val = max(decoded_uppers) if decoded_uppers else None
-                if min_val is not None or max_val is not None:
-                    column_bounds.append(
-                        {
-                            "field_name": field.name,
-                            "min_value": _format_bound_value(min_val)
-                            if min_val is not None
-                            else "?",
-                            "max_value": _format_bound_value(max_val)
-                            if max_val is not None
-                            else "?",
-                        }
-                    )
-            except Exception:
-                log.debug("Failed to decode bounds for field %s", field.name, exc_info=True)
+
+            lowers = lower_bounds_raw.get(fid, [])
+            uppers = upper_bounds_raw.get(fid, [])
+            decoded_lowers = [from_bytes(field.field_type, b) for b in lowers if b]
+            decoded_uppers = [from_bytes(field.field_type, b) for b in uppers if b]
+            min_val = min(decoded_lowers) if decoded_lowers else None
+            max_val = max(decoded_uppers) if decoded_uppers else None
+            if min_val is not None or max_val is not None:
+                column_bounds.append(
+                    {
+                        "field_name": field.name,
+                        "min_value": _format_bound_value(min_val)
+                        if min_val is not None
+                        else "?",
+                        "max_value": _format_bound_value(max_val)
+                        if max_val is not None
+                        else "?",
+                    }
+                )
     except ImportError:
         log.debug("pyiceberg.conversions not available, skipping bounds")
     result["column_bounds"] = column_bounds
@@ -599,43 +610,51 @@ def collect_table_health(tbl: IcebergTable) -> dict[str, Any]:
     # --- partition overlap detection ----------------------------------
     overlap_count = 0
     overlap_warning = False
-    try:
-        default_spec_id = tbl.metadata.default_spec_id
-        spec = next((s for s in tbl.metadata.partition_specs if s.spec_id == default_spec_id), None)
-        if spec is not None and spec.fields:
-            source_id = spec.fields[0].source_id
-            if source_id in field_by_id:
-                field = field_by_id[source_id]
-                from pyiceberg.types import PrimitiveType as PT
 
-                if isinstance(field.field_type, PT):
-                    from pyiceberg.conversions import from_bytes as fb
+    default_spec_id = tbl.metadata.default_spec_id
+    spec = next((s for s in tbl.metadata.partition_specs if s.spec_id == default_spec_id), None)
+    if spec is not None and spec.fields:
+        source_id = spec.fields[0].source_id
+        if source_id in field_by_id:
+            field = field_by_id[source_id]
+            from pyiceberg.types import PrimitiveType as PT
 
-                    file_ranges: list[tuple[Any, Any]] = []
-                    for row in file_rows:
-                        lb = _to_dict(row.get("lower_bounds")).get(source_id)
-                        ub = _to_dict(row.get("upper_bounds")).get(source_id)
-                        if lb is not None and ub is not None:
-                            try:
-                                lo = fb(field.field_type, lb)
-                                hi = fb(field.field_type, ub)
-                                file_ranges.append((lo, hi))
-                            except Exception:
-                                pass
-                    if len(file_ranges) > _OVERLAP_FILE_LIMIT:
-                        overlap_warning = None  # type: ignore[assignment]
-                    else:
-                        file_ranges.sort(key=lambda r: r[0])
-                        for i in range(len(file_ranges) - 1):
-                            _lo_i, hi_i = file_ranges[i]
-                            for j in range(i + 1, len(file_ranges)):
-                                lo_j, _hi_j = file_ranges[j]
-                                if lo_j > hi_i:
-                                    break
-                                overlap_count += 1
-                        overlap_warning = overlap_count > 0
-    except Exception:
-        log.debug("Failed to compute partition overlap", exc_info=True)
+            if isinstance(field.field_type, PT):
+                from pyiceberg.conversions import from_bytes as fb
+
+                file_ranges: list[tuple[Any, Any]] = []
+                for row in file_rows:
+                    lb = _to_dict(row.get("lower_bounds")).get(source_id)
+                    ub = _to_dict(row.get("upper_bounds")).get(source_id)
+                    if lb is not None and ub is not None:
+                        try:
+                            lo = fb(field.field_type, lb)
+                            hi = fb(field.field_type, ub)
+                            file_ranges.append((lo, hi))
+                        except Exception:
+                            pass
+                if len(file_ranges) > _OVERLAP_FILE_LIMIT:
+                    # Use O(N log N) sweep-line for large datasets
+                    file_ranges.sort(key=lambda r: r[0])
+                    max_end = None
+                    for lo, hi in file_ranges:
+                        if max_end is not None and lo < max_end:
+                            overlap_warning = True
+                            overlap_count = -1  # Signal "many/unknown"
+                            break
+                        if max_end is None or hi > max_end:
+                            max_end = hi
+                else:
+                    # Use O(N^2) for small datasets to get exact pair count
+                    file_ranges.sort(key=lambda r: r[0])
+                    for i in range(len(file_ranges) - 1):
+                        _lo_i, hi_i = file_ranges[i]
+                        for j in range(i + 1, len(file_ranges)):
+                            lo_j, _hi_j = file_ranges[j]
+                            if lo_j > hi_i:
+                                break
+                            overlap_count += 1
+                    overlap_warning = overlap_count > 0
 
     result["partition_overlap"] = {
         "overlapping_pairs": overlap_count,
@@ -813,11 +832,15 @@ def render_table_health(
     if overlap["overlap_warning"] is None:
         console.print("\n  [dim]Overlap detection skipped (too many data files)[/dim]")
     elif overlap["overlap_warning"]:
-        console.print(
-            f"\n  [yellow]Overlap: {overlap['overlapping_pairs']} file pair"
-            f"{'s' if overlap['overlapping_pairs'] != 1 else ''} "
-            f"with overlapping bounds -- may hurt scan performance[/yellow]"
-        )
+        count = overlap["overlapping_pairs"]
+        if count < 0:
+            msg = "Overlap detected: Multiple files have overlapping bounds"
+        else:
+            msg = (
+                f"Overlap: {count} file pair{'s' if count != 1 else ''} "
+                "with overlapping bounds"
+            )
+        console.print(f"\n  [yellow]{msg} -- may hurt scan performance[/yellow]")
 
     # --- Column Null Rates ---
     console.print()

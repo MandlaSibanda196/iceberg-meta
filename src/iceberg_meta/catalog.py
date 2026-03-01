@@ -125,11 +125,9 @@ def resolve_catalog_config(
             props = _apply_env_overrides(props)
             return CatalogConfig(catalog_name=name, properties=props)
         if catalog_name:
-            available = ", ".join(sorted(catalogs)) if catalogs else "(none)"
-            raise ValueError(
-                f"Catalog '{catalog_name}' not found in {CONFIG_FILE}. "
-                f"Available catalogs: {available}"
-            )
+            # Fallback to pyiceberg native config if not in our config
+            props = _apply_env_overrides({})
+            return CatalogConfig(catalog_name=catalog_name, properties=props)
         if name != "default" and catalogs:
             available = ", ".join(sorted(catalogs))
             raise ValueError(

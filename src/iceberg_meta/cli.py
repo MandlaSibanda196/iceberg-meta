@@ -10,6 +10,15 @@ import typer
 from dotenv import load_dotenv
 from rich.console import Console
 
+from pyiceberg.exceptions import (
+    ForbiddenError,
+    NoSuchNamespaceError,
+    NoSuchTableError,
+    NotInstalledError,
+    ServerError,
+    SignError,
+    UnauthorizedError,
+)
 from iceberg_meta import __version__, formatters
 from iceberg_meta.catalog import (
     CONFIG_FILE,
@@ -47,7 +56,42 @@ def _friendly_error(e: Exception, config: CatalogConfig, table: str | None = Non
     msg = str(e).lower()
     etype = type(e).__name__.lower()
 
-    if "could not connect" in msg or "connection" in msg or "urlopen" in msg or "refused" in msg:
+    if isinstance(e, NoSuchTableError) or ("table" in msg and "does not exist" in msg):
+        err_console.print(
+            f"[red bold]Table not found:[/red bold] '{table or 'unknown'}'\n"
+            "  Run [bold]iceberg-meta list-tables[/bold] to see available tables."
+        )
+    elif isinstance(e, NoSuchNamespaceError) or "nosuchnamespace" in etype:
+        err_console.print(
+            "[red bold]Namespace not found.[/red bold]\n"
+            "  Run [bold]iceberg-meta list-tables[/bold] to see available namespaces."
+        )
+    elif isinstance(e, (UnauthorizedError, ForbiddenError)) or "unauthorized" in msg or "401" in msg:
+        err_console.print(
+            "[red bold]Authentication failed:[/red bold] Credentials are invalid or expired.\n"
+            "  Check your access key, secret key, and any session tokens."
+        )
+    elif "access denied" in msg or "forbidden" in msg or "403" in msg:
+        err_console.print(
+            "[red bold]Access denied:[/red bold] S3 credentials may be invalid.\n"
+            "  Check s3.access-key-id and s3.secret-access-key in your config."
+        )
+    elif isinstance(e, SignError) or "signature" in msg or "signerror" in etype or "signing" in msg:
+        err_console.print(
+            "[red bold]S3 signing error:[/red bold] Request signing failed.\n"
+            "  Check your AWS credentials and region (s3.region in config)."
+        )
+    elif isinstance(e, NotInstalledError) or "notinstalled" in etype or "no module named" in msg:
+        err_console.print(
+            f"[red bold]Missing dependency:[/red bold] {e}\n"
+            "  Install the required optional dependency and try again."
+        )
+    elif isinstance(e, ServerError) or "500" in msg or "server error" in msg:
+        err_console.print(
+            "[red bold]Server error:[/red bold] The catalog server returned an internal error.\n"
+            "  Check the catalog server logs for details."
+        )
+    elif "could not connect" in msg or "connection" in msg or "urlopen" in msg or "refused" in msg:
         uri = config.properties.get("uri", "unknown")
         err_console.print(
             f"[red bold]Connection failed:[/red bold] Could not connect to catalog at {uri}\n"
@@ -1068,7 +1112,10 @@ def partitions(
 @app.command()
 def health(
     ctx: typer.Context,
-    table: str = typer.Argument(help="Table identifier (namespace.table_name)"),
+    identifier: str = typer.Argument(..., help="Table name (e.g. 'db.table') or Namespace"),
+    is_namespace: bool = typer.Option(
+        False, "--namespace", "-n", help="Scan all tables in a namespace"
+    ),
 ):
     """Comprehensive table health report.
 
@@ -1079,10 +1126,43 @@ def health(
     fmt: OutputFormat = ctx.obj["output_format"]
 
     def _do():
-        tbl = get_table(config, table)
-        formatters.render_table_health(console, tbl, fmt=fmt)
+        if is_namespace:
+            from pyiceberg.catalog import load_catalog
 
-    _run(_do, config, table)
+            catalog = load_catalog(config.catalog_name, **config.properties)
+            # Support both "db" and "db.schema" format for namespace
+            ns_tuple = tuple(identifier.split("."))
+            
+            try:
+                tables = catalog.list_tables(ns_tuple)
+            except NoSuchNamespaceError:
+                 # Try listing namespaces to see if it exists but is empty? 
+                 # Or just re-raise and let _friendly_error handle it?
+                 # _friendly_error handles NoSuchNamespaceError.
+                 raise
+
+            if not tables:
+                console.print(f"[yellow]No tables found in namespace '{identifier}'.[/yellow]")
+                return
+
+            console.print(
+                f"Found {len(tables)} tables in namespace '{identifier}'. Running health checks...\n"
+            )
+
+            for i, tbl_tuple in enumerate(tables):
+                tbl_name = ".".join(tbl_tuple)
+                console.print(f"[bold cyan]Table {i+1}/{len(tables)}: {tbl_name}[/bold cyan]")
+                try:
+                    tbl = catalog.load_table(tbl_name)
+                    formatters.render_table_health(console, tbl, fmt=fmt)
+                    console.print()  # Spacer
+                except Exception as e:
+                    console.print(f"[red]Skipping {tbl_name}: {e}[/red]\n")
+        else:
+            tbl = get_table(config, identifier)
+            formatters.render_table_health(console, tbl, fmt=fmt)
+
+    _run(_do, config, identifier if not is_namespace else None)
 
 
 # ─── snapshot-detail ──────────────────────────────────────────

@@ -17,3 +17,10 @@ quickstart/catalog/
 # Environment files (contain credentials)
 .env
 quickstart/.env
+
+# Local development workspace
+local-dev/
+
+# Monster table testing (local only)
+monster_catalog/
+monster_config.yaml
